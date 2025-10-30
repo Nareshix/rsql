@@ -18,8 +18,9 @@ impl Drop for Connection {
 
 #[allow(dead_code)]
 impl Connection {
-    
-    pub fn open(filename:&str) -> Result<Connection, String>{
+
+    /// Note: The sqlite3 connection can be NULL, so handle that
+    pub fn open(filename: &str) -> Result<Connection, String> {
         let flag = ffi::SQLITE_OPEN_READWRITE | ffi::SQLITE_OPEN_CREATE;
 
         Connection::open_with_flags(filename, flag)
@@ -27,8 +28,6 @@ impl Connection {
 
     /// - The flags refer to what mode to open the db in (readwrite, memory, etc)
     ///  - Returns a successful sqlite connection to do ur operations on (prepare, execute, etc). Error msg is returned as a String.
-    ///
-    /// Note: The sqlite3 connection can be NULL, so handle that
     fn open_with_flags(filename: &str, flags: c_int) -> Result<Connection, String> {
         let mut db_handle = ptr::null_mut();
 
