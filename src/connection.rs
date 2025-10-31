@@ -18,8 +18,6 @@ impl Drop for Connection {
 
 #[allow(dead_code)]
 impl Connection {
-
-    /// Note: The sqlite3 connection can be NULL, so handle that
     pub fn open(filename: &str) -> Result<Connection, String> {
         let flag = ffi::SQLITE_OPEN_READWRITE | ffi::SQLITE_OPEN_CREATE;
 
@@ -37,7 +35,13 @@ impl Connection {
             ffi::sqlite3_open_v2(c_filename.as_ptr(), &mut db_handle, flags, ptr::null())
         };
 
-        if code == ffi::SQLITE_OK {
+        if code == ffi::SQLITE_OK && db_handle.is_null() {
+            unsafe {
+                ffi::sqlite3_close(db_handle);
+                //TODO the rror message isnt rlly helpful, so tryto imporve on it
+                Err("Sqlite is unable to allocate memory to hold the conn object".to_string())
+            }
+        } else if code == ffi::SQLITE_OK {
             Ok(Connection { handle: db_handle })
         } else {
             unsafe {
