@@ -1,4 +1,6 @@
-use libsqlite3_sys::{self as ffi, SQLITE_OK, sqlite3_finalize, sqlite3_stmt};
+use libsqlite3_sys::{
+    self as ffi, SQLITE_OK, sqlite3_clear_bindings, sqlite3_finalize, sqlite3_reset, sqlite3_stmt,
+};
 
 use crate::{connection::Connection, error::Error, utils::get_sqlite_error_msg};
 use std::{
@@ -43,7 +45,6 @@ impl Drop for Statement<'_> {
     fn drop(&mut self) {
         //handle case when it fials to finalise TODO
         unsafe { sqlite3_finalize(self.stmt) };
-
     }
 }
 
@@ -108,5 +109,16 @@ impl Statement<'_> {
         } else {
             Ok(())
         }
+    }
+
+    fn reset(&self) {
+        //TODO error hanndle code
+        let code = unsafe { sqlite3_reset(self.stmt) };
+    }
+
+    fn clear_bindings(&self) {
+         unsafe { sqlite3_clear_bindings(self.stmt) };
+        //  return code is always SQLITE_OK according to rusqlite
+        // 
     }
 }
