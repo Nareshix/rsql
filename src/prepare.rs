@@ -119,6 +119,6 @@ impl Statement<'_> {
     fn clear_bindings(&self) {
          unsafe { sqlite3_clear_bindings(self.stmt) };
         //  return code is always SQLITE_OK according to rusqlite
-        // 
+        // Not necessary in ur case, pls double cehck again TODO
     }
 }
