@@ -3,12 +3,6 @@
 version = 4
 
 [[package]]
-name = "libc"
-version = "0.2.177"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2874a2af47a2325c2001a6e6fad9b16a53b802102b528163885171cf92b15976"
-
-[[package]]
 name = "libsqlite3-sys"
 version = "0.35.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -28,7 +22,6 @@ checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 name = "rsql"
 version = "0.1.0"
 dependencies = [
- "libc",
  "libsqlite3-sys",
 ]
 
