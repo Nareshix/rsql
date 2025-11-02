@@ -3,3 +3,10 @@ for instance error will be return if u are using a null pointer for a funciton. 
 
 CString::new states that the rust code given must not contain a null pointer inside it, '\0' (hence the unsafe)
 handle those cases as well. currently i unwarap it. 
+
+
+
+
+
+sqlite3_busy_timeout vs thread sleep
+replace all expect and unwrap with  proper error hadnling
