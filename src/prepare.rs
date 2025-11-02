@@ -1,5 +1,5 @@
 use libsqlite3_sys::{
-    self as ffi, SQLITE_OK, sqlite3_clear_bindings, sqlite3_finalize, sqlite3_reset, sqlite3_stmt,
+    self as ffi, SQLITE_OK, sqlite3_clear_bindings, sqlite3_finalize, sqlite3_reset, sqlite3_step, sqlite3_stmt
 };
 
 use crate::{connection::Connection, error::Error, to_sql::ToSql, utils::get_sqlite_error_msg};
@@ -69,12 +69,17 @@ impl Statement<'_> {
 
     fn reset(&self) {
         //TODO error hanndle code
-        let code = unsafe { sqlite3_reset(self.stmt) };
+        unsafe { sqlite3_reset(self.stmt) };
     }
 
     fn clear_bindings(&self) {
          unsafe { sqlite3_clear_bindings(self.stmt) };
         //  return code is always SQLITE_OK according to rusqlite
         // Not necessary in ur case, pls double cehck again TODO
+    }
+
+    pub fn step(&self){
+        //TODO doesnt support SELECT (duh)
+        unsafe {sqlite3_step(self.stmt)};
     }
 }
