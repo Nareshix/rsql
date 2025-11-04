@@ -80,6 +80,7 @@ impl Statement<'_> {
 
     pub fn step(&self){
         //TODO doesnt support SELECT (duh)
+        // TODO error handling?
         unsafe {sqlite3_step(self.stmt)};
     }
 }
