@@ -20,32 +20,31 @@
 //     print(i.data)
 // }
 
-
-
-
 use rsql::internal_sqlite::connection::Connection;
 
 struct Person {
     id: i32,
-    name: String,
-    data: Option<Vec<u8>>,
+    username: String,
+    email: String,
 }
 
-
-
-
 fn main() {
-    let x = Connection::open("hi.db").unwrap();
-    let y = x
-        .prepare(
-            "CREATE TABLE users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT NOT NULL UNIQUE,
-    email TEXT NOT NULL UNIQUE,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-",
-        )
-        .unwrap();
-    y.step();
+    let conn = Connection::open("hi.db").unwrap();
+    //     let y = x
+    //         .prepare(
+    //             "CREATE TABLE users (
+    //     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    //     username TEXT NOT NULL UNIQUE,
+    //     email TEXT NOT NULL UNIQUE
+    // );
+    // ",
+    //         )
+    //         .unwrap();
+    //     y.step();
+
+    let statement = conn.prepare("SELECT * FROM users").unwrap();
+
+    for row_result in statement.query() {
+        println!("Found user: {:?}", row_result.id);
+    };
 }
