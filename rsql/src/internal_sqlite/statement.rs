@@ -5,7 +5,7 @@ use libsqlite3_sys::{
 };
 
 
-use crate::{internal_sqlite::row::Rows, traits::to_sql::ToSql};
+use crate::{internal_sqlite::row::Rows, traits::{rsql::Rsql, to_sql::ToSql}};
 
 use std::{ffi::CString, ptr};
 
@@ -60,6 +60,7 @@ impl Statement<'_> {
     // the result is undefined and probably harmful.
 
     ///note index start from 1 and not 0
+    /// TODO consider &impl ToSql to prevent moving?
     #[allow(unused)]
     pub fn bind_parameter(&self, index: i32, value: impl ToSql) -> Result<(), Error> {
         let code = unsafe { value.bind_to(self.stmt, index) };
@@ -92,7 +93,13 @@ impl Statement<'_> {
         unsafe { sqlite3_step(self.stmt) }
     }
 
-    pub fn query(&self) -> Rows<'_> {
-        Rows {stmt: self}
+    //TODO readup on lifetime. idk why it works but compiler is ok with it
+    pub fn query<'a, T: Rsql>(&'a self, row_metadata: &'a T) -> Rows<'a, T> {
+        // todo!();
+
+         Rows{
+            stmt: self,
+            row_metadata
+        }
     }
 }

@@ -20,13 +20,17 @@
 //     print(i.data)
 // }
 
-use rsql::internal_sqlite::connection::Connection;
+use rsql::{internal_sqlite::connection::Connection, traits::rsql::Rsql};
 
 struct Person {
     id: i32,
     username: String,
     email: String,
 }
+
+
+impl Rsql for Person {}
+
 
 fn main() {
     let conn = Connection::open("hi.db").unwrap();
@@ -44,7 +48,7 @@ fn main() {
 
     let statement = conn.prepare("SELECT * FROM users").unwrap();
 
-    for row_result in statement.query() {
-        println!("Found user: {:?}", row_result.id);
-    };
+    // for row_result in statement.query() {
+    //     println!("Found user: {:?}", row_result.id);
+    // };
 }
