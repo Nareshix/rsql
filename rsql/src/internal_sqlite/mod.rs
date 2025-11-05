@@ -1,3 +1,3 @@
 pub mod connection;
 pub mod statement;
-pub mod column;
+pub mod row;

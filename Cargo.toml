@@ -1,7 +1,7 @@
 [workspace]
 members = [
-    "rsql",          # The name for your main library crate
-    "sql_mapping",    # The name for your proc-macro crate
+    "rsql",        
+    "macros", "test_main",
 ]
 
 resolver = "3"

@@ -5,7 +5,7 @@ use libsqlite3_sys::{
 };
 
 
-use crate::traits::to_sql::ToSql;
+use crate::{internal_sqlite::row::Rows, traits::to_sql::ToSql};
 
 use std::{ffi::CString, ptr};
 
@@ -92,8 +92,7 @@ impl Statement<'_> {
         unsafe { sqlite3_step(self.stmt) }
     }
 
-
-    pub fn query(&self) {
-        // TODO creates an iterator
+    pub fn query(&self) -> Rows<'_> {
+        Rows {stmt: self}
     }
 }
