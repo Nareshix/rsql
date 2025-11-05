@@ -13,7 +13,7 @@ pub trait ToSql {
     unsafe fn bind_to(self, stmt: *mut sqlite3_stmt, index: i32) -> i32;
 }
 
-impl ToSql for String {
+impl  ToSql for String {
     unsafe fn bind_to(self, stmt: *mut sqlite3_stmt, index: i32) -> i32 {
         let c_str = CString::new(self).unwrap(); //TODO
         unsafe { ffi::sqlite3_bind_text(stmt, index, c_str.as_ptr(), -1, SQLITE_TRANSIENT()) }

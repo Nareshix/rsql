@@ -8,6 +8,7 @@ pub enum Error {
     /// An error msg from an underlying SQLite call.
     SqliteFailiure(String),
 
+    SqliteToRustConversionFailiure
     // /// Error converting a C-style string from SQLite to a Rust `String`
     // /// because it was not valid UTF-8.
     // Utf8(Utf8Error),

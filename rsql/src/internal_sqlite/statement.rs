@@ -1,15 +1,23 @@
 use libsqlite3_sys::{
-    self as ffi, SQLITE_OK, SQLITE_ROW, sqlite3_clear_bindings, sqlite3_finalize, sqlite3_reset,
-    sqlite3_step, sqlite3_stmt,
+    self as ffi, SQLITE_OK, sqlite3_clear_bindings,
+     sqlite3_finalize, sqlite3_reset, sqlite3_step,
+    sqlite3_stmt,
 };
 
-use crate::{connection::Connection, error::Error, to_sql::ToSql, utils::get_sqlite_error_msg};
+
+use crate::traits::to_sql::ToSql;
+
 use std::{ffi::CString, ptr};
+
+use crate::{
+    internal_sqlite::connection::Connection,
+    utility::{error::Error, utils::get_sqlite_error_msg},
+};
 
 #[allow(dead_code)]
 pub struct Statement<'conn> {
     conn: &'conn Connection,
-    stmt: *mut sqlite3_stmt,
+    pub stmt: *mut sqlite3_stmt,
 }
 
 impl Drop for Statement<'_> {
@@ -53,7 +61,7 @@ impl Statement<'_> {
 
     ///note index start from 1 and not 0
     #[allow(unused)]
-    pub fn bind_parameter<T: ToSql>(&self, index: i32, value: T) -> Result<(), Error> {
+    pub fn bind_parameter(&self, index: i32, value: impl ToSql) -> Result<(), Error> {
         let code = unsafe { value.bind_to(self.stmt, index) };
 
         if code != SQLITE_OK {
@@ -77,10 +85,15 @@ impl Statement<'_> {
 
     /// returns SQLITE_ROW  if there is available rows
     /// else, SQLITE_DONE (or smth else TODO check again)
-    /// 
+    ///
     /// TODO: do we need to warn whether returns nothing? like during compile time check
     pub fn step(&self) -> i32 {
         // TODO error handling?
         unsafe { sqlite3_step(self.stmt) }
+    }
+
+
+    pub fn query(&self) {
+        // TODO creates an iterator
     }
 }

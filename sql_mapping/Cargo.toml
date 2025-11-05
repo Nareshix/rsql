@@ -1,0 +1,13 @@
+[package]
+name = "sql_mapping"
+version = "0.1.0"
+edition = "2024"
+
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "1.0", features = ["full"] }
+quote = "1.0"
+libsqlite3-sys = "0.35.0"

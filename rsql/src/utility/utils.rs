@@ -1,9 +1,27 @@
-use libsqlite3_sys::{self as ffi, SQLITE_BUSY, sqlite3};
+use libsqlite3_sys::{self as ffi, SQLITE_BUSY, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL, SQLITE_TEXT, sqlite3};
 use std::{
     ffi::{CStr,},
      thread, time::Duration,
 };
 
+use crate::utility::error::Error;
+
+enum RustTypes {
+    Integer,
+    String,
+    Float,
+    Null
+}
+
+pub fn sqlite_to_rust_type_mapping(sqlite_type: i32) -> Result<RustTypes, Error>{
+    match sqlite_type {
+        SQLITE_INTEGER => Ok(RustTypes::Integer),
+        SQLITE_FLOAT => Ok(RustTypes::Float),
+        SQLITE_TEXT => Ok(RustTypes::String),
+        SQLITE_NULL => Ok(RustTypes::Null),
+        _ => Err(Error::SqliteToRustConversionFailiure)
+    }
+}
 
 /// # Safety
 ///

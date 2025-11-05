@@ -4,13 +4,11 @@ use std::{
     ptr,
 };
 
-use crate::{
-    utils::{close_db, get_sqlite_error_msg},
-    error::Error,
-};
+use crate::utility::error::Error;
+use crate::utility::utils::close_db;
+use crate::utility::utils::get_sqlite_error_msg;
 
-
-//TODO use Refcell for better ergonomics
+//TODO use Refcell for better ergonomics (UNconfirmed)
 pub struct Connection {
     db: *mut sqlite3,
 }
@@ -22,9 +20,8 @@ impl Drop for Connection {
     }
 }
 
-
 impl Connection {
-    pub (crate) fn get_db(&self) -> *mut sqlite3{
+    pub(crate) fn get_db(&self) -> *mut sqlite3 {
         self.db
     }
 
@@ -58,6 +55,4 @@ impl Connection {
             Err(Error::SqliteFailiure(error_msg))
         }
     }
-
-    
 }
