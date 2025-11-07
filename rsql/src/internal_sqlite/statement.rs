@@ -1,11 +1,15 @@
 use libsqlite3_sys::{
-    self as ffi, SQLITE_OK, sqlite3_clear_bindings,
-     sqlite3_finalize, sqlite3_reset, sqlite3_step,
+    self as ffi, SQLITE_OK, sqlite3_clear_bindings, sqlite3_finalize, sqlite3_reset, sqlite3_step,
     sqlite3_stmt,
 };
 
-
-use crate::{internal_sqlite::row::Rows, traits::{rsql::Rsql, to_sql::ToSql}};
+use crate::{
+    internal_sqlite::row::Rows,
+    traits::{
+        from_sql::{FromSql, RowMapper},
+        to_sql::ToSql,
+    },
+};
 
 use std::{ffi::CString, ptr};
 
@@ -93,13 +97,10 @@ impl Statement<'_> {
         unsafe { sqlite3_step(self.stmt) }
     }
 
-    //TODO readup on lifetime. idk why it works but compiler is ok with it
-    pub fn query<'a, T: Rsql>(&'a self, row_metadata: &'a T) -> Rows<'a, T> {
-        // todo!();
-
-         Rows{
+    pub fn query<'a, M: RowMapper>(&'a self, mapper: M) -> Rows<'a, M> {
+        Rows {
             stmt: self,
-            row_metadata
+            mapper,
         }
     }
 }

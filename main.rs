@@ -68,7 +68,7 @@ fn main() {
     //     y.step();
 
     let statement = conn.prepare("SELECT * FROM users").unwrap();
-    let person_mapper = PersonMapper;
+        let person_mapper = PersonMapper;
 
     for person in statement.query(person_mapper) {
         println!("Found user: {:?}", person);
