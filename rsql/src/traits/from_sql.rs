@@ -9,8 +9,6 @@ pub trait FromSql {
 
 
 pub trait RowMapper {
-    // This associated type tells the compiler what struct this mapper produces.
-    // This is the key to type inference!
     type Output;
 
     /// # Unsafe

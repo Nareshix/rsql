@@ -18,13 +18,13 @@ pub struct Row {
 #[allow(dead_code)]
 pub struct Rows<'a, M: RowMapper> {
     pub stmt: &'a Statement<'a>,
-    pub mapper: M, // It holds the mapper that will be used.
+    pub mapper: M, 
 }
 
 impl<'a, M: RowMapper> Iterator for Rows<'a, M> {
     // The Item is the `Output` type associated with our mapper `M`.
     // The compiler knows this is `Person` when we pass a `PersonMapper`.
-    type Item = M::Output;
+type Item = M::Output;
 
     fn next(&mut self) -> Option<Self::Item> {
         let result_code = unsafe { sqlite3_step(self.stmt.stmt) };
