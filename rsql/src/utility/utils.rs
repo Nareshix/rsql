@@ -6,14 +6,13 @@ use std::{
 
 use crate::utility::error::Error;
 
-enum RustTypes {
+pub enum RustTypes {
     Integer,
     String,
     Float,
     Null
 }
 
-//TODO yellow squiggly
 pub fn sqlite_to_rust_type_mapping(sqlite_type: i32) -> Result<RustTypes, Error>{
     match sqlite_type {
         SQLITE_INTEGER => Ok(RustTypes::Integer),
