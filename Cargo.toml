@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "rsql",        
-    "macros", "test_main",
+    "macros", "test_main", "test_macro",
 ]
 
 resolver = "3"
