@@ -40,6 +40,7 @@ pub unsafe fn get_sqlite_error_msg(db: *mut sqlite3) -> String {
 ///
 /// - db must be a valid sqlite3 connection which is not NULL  
 pub unsafe fn close_db(db: *mut sqlite3) {
+    //TODO THIS IS DANGEROUS
     loop {
         let code = unsafe { ffi::sqlite3_close(db) };
 
