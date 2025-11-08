@@ -1,8 +1,7 @@
-use std::ffi::CStr;
 
-use libsqlite3_sys::{SQLITE_DONE, SQLITE_ROW, sqlite3_column_int, sqlite3_column_int64, sqlite3_column_text, sqlite3_step, sqlite3_stmt};
+use libsqlite3_sys::{SQLITE_ROW, sqlite3_step};
 
-use crate::{internal_sqlite::statement::Statement, traits::from_sql::{FromSql, RowMapper}};
+use crate::{internal_sqlite::statement::Statement, traits::from_sql::RowMapper};
 
 //TODO example only, eventually make it dynamic
 #[allow(dead_code)]

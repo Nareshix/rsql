@@ -6,7 +6,7 @@ use libsqlite3_sys::{
 use crate::{
     internal_sqlite::row::Rows,
     traits::{
-        from_sql::{FromSql, RowMapper},
+        from_sql::RowMapper,
         to_sql::ToSql,
     },
 };
