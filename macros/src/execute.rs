@@ -6,6 +6,8 @@ use syn::{
 
 use proc_macro2::TokenStream as TokenStream2;
 
+
+//TODO only strictly allow Connection structs rather than a generic Path
 pub struct Execute {
     pub conn: Path,
     pub sql_statement: Expr,
