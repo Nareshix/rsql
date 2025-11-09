@@ -35,6 +35,8 @@ pub unsafe fn get_sqlite_error_msg(db: *mut sqlite3) -> String {
     safe_error_msg.to_string_lossy().into_owned()
 }
 
+/// This fn also handles SQLITE_BUSY error code, allowing for graceful shutdown
+/// 
 /// # Safety
 ///
 /// - db must be a valid sqlite3 connection which is not NULL  
