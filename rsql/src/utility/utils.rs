@@ -1,8 +1,7 @@
-use libsqlite3_sys::{self as ffi, SQLITE_BUSY, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL, SQLITE_TEXT, sqlite3};
-use std::{
-    ffi::{CStr,},
-     thread, time::Duration,
+use libsqlite3_sys::{
+    self as ffi, SQLITE_BUSY, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL, SQLITE_TEXT, sqlite3,
 };
+use std::{ffi::CStr, thread, time::Duration};
 
 use crate::utility::error::Error;
 
@@ -10,16 +9,16 @@ pub enum RustTypes {
     Integer,
     String,
     Float,
-    Null
+    Null,
 }
 
-pub fn sqlite_to_rust_type_mapping(sqlite_type: i32) -> Result<RustTypes, Error>{
+pub fn sqlite_to_rust_type_mapping(sqlite_type: i32) -> Result<RustTypes, Error> {
     match sqlite_type {
         SQLITE_INTEGER => Ok(RustTypes::Integer),
         SQLITE_FLOAT => Ok(RustTypes::Float),
         SQLITE_TEXT => Ok(RustTypes::String),
         SQLITE_NULL => Ok(RustTypes::Null),
-        _ => Err(Error::SqliteToRustConversionFailiure)
+        _ => Err(Error::SqliteToRustConversionFailiure),
     }
 }
 
@@ -40,7 +39,7 @@ pub unsafe fn get_sqlite_error_msg(db: *mut sqlite3) -> String {
 ///
 /// - db must be a valid sqlite3 connection which is not NULL  
 pub unsafe fn close_db(db: *mut sqlite3) {
-    //TODO THIS IS DANGEROUS
+    //TODO idt u should loop? perhaps a timeout? porblematic during long running services tho...
     loop {
         let code = unsafe { ffi::sqlite3_close(db) };
 
