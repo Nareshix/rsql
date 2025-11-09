@@ -15,8 +15,7 @@ pub struct Connection {
 
 impl Drop for Connection {
     fn drop(&mut self) {
-        // TODO handle SQL_BUSY
-        unsafe { ffi::sqlite3_close(self.get_db()) };
+        unsafe { close_db(self.db); };
     }
 }
 
