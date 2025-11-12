@@ -12,3 +12,6 @@ sqlite3_busy_timeout vs thread sleep
 replace all expect and unwrap with  proper error hadnling
 
 for some of the opeartions involving strings i added -1 which cause sqlite (internally) to perform O(n) operation to extract the string which could be avoided if i give it the length beforehand (O(1))
+
+
+have a execute_all feature with mulitp;le sql statement

@@ -45,12 +45,13 @@ impl ToTokens for Execute {
         let sql_statement = &self.sql_statement;
         let sql_bindings = &self.sql_bindings;
 
+        //TODO sql_bindings duh
         let generated_code = quote! {
-            (
-                #conn,
-                #sql_statement,
-                #sql_bindings
-            )
+                #conn.prepare(#sql_statement)?.step()
+                // #conn,
+                // #sql_statement,
+                // #sql_bindings
+            
         };
 
         tokens.extend(generated_code);

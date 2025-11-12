@@ -1,7 +1,12 @@
 use libsqlite3_sys::{
     self as ffi, SQLITE_BUSY, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL, SQLITE_TEXT, sqlite3,
+    sqlite3_errcode,
 };
-use std::{ffi::CStr, thread, time::Duration};
+use std::{
+    ffi::{CStr, c_char},
+    thread,
+    time::Duration,
+};
 
 use crate::utility::error::Error;
 
@@ -22,21 +27,27 @@ pub fn sqlite_to_rust_type_mapping(sqlite_type: i32) -> Result<RustTypes, Error>
     }
 }
 
-/// # Safety
+/// Internally calls sqlite3_errcode and sqlite3_errmsg to return 
+/// specifcally **Error::SqliteFailure** with the necessary code and error_msg
+///
+///  # Safety
 ///
 /// - db must be a valid sqlite3 connection which is not NULL  
-pub unsafe fn get_sqlite_error_msg(db: *mut sqlite3) -> String {
-    let safe_error_msg: &CStr = unsafe {
+pub unsafe fn get_sqlite_failiure(db: *mut sqlite3) -> (i32, String) {
+    let safe_error_msg = unsafe {
         // sqlite internally handles dropping c_error_msg
         let c_error_msg = ffi::sqlite3_errmsg(db);
-        CStr::from_ptr(c_error_msg)
+        CStr::from_ptr(c_error_msg as *const c_char)
     };
 
-    safe_error_msg.to_string_lossy().into_owned()
+    let error_msg = safe_error_msg.to_string_lossy().into_owned();
+    let code = unsafe { sqlite3_errcode(db) };
+
+    (code, error_msg)    
 }
 
 /// This fn also handles SQLITE_BUSY error code, allowing for graceful shutdown
-/// 
+///
 /// # Safety
 ///
 /// - db must be a valid sqlite3 connection which is not NULL  

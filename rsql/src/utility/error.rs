@@ -1,13 +1,26 @@
+use std::ffi::c_int;
+
+use thiserror::Error;
+
 
 /// Enum listing possible errors.
-#[derive(Debug)]
+
+#[derive(Error, Debug)]
 pub enum Error {
     /// Fail to open db
-    OpenFailure(String),
+    //TODO error handling should be using direct String
+    #[error("SQLite is unable to allocate memory to hold the database connection object")]
+    ConnectionAllocationFailed,
     
     /// An error msg from an underlying SQLite call.
-    SqliteFailiure(String),
+    //TODO error handling should be using direct String
+    #[error("SQLite error {code}: {error_msg}")]
+    SqliteFailure {
+        code: c_int,
+        error_msg: String,
+    },
 
+    #[error("Failed to convert sqlite data type to Rust data type")]
     SqliteToRustConversionFailiure
     // /// Error converting a C-style string from SQLite to a Rust `String`
     // /// because it was not valid UTF-8.
@@ -54,3 +67,6 @@ pub enum Error {
 
 // You would then implement `From` traits for `io::Error`, `Utf8Error`, `NulError`, etc.
 // to make error handling ergonomic.
+
+
+
