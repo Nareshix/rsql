@@ -2,14 +2,7 @@ use libsqlite3_sys::{SQLITE_ROW, sqlite3_step};
 
 use crate::{internal_sqlite::statement::Statement, traits::from_sql::RowMapper};
 
-//TODO example only, eventually make it dynamic
-#[allow(dead_code)]
-#[derive(Debug)]
-pub struct Row {
-    pub id: i64,
-    pub username: String,
-    pub email: String,
-}
+
 
 #[allow(dead_code)]
 pub struct Rows<'a, M: RowMapper> {
@@ -18,8 +11,7 @@ pub struct Rows<'a, M: RowMapper> {
 }
 
 impl<'a, M: RowMapper> Iterator for Rows<'a, M> {
-    // The Item is the `Output` type associated with our mapper `M`.
-    // The compiler knows this is `Person` when we pass a `PersonMapper`.
+    // The Output refers to the original struct predefined by user (TODO, better explanation)
     type Item = M::Output;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -30,7 +22,7 @@ impl<'a, M: RowMapper> Iterator for Rows<'a, M> {
             let item = unsafe { self.mapper.map_row(self.stmt.stmt) };
             Some(item)
         } else {
-            // SQLITE_DONE or an error occurred.
+            // SQLITE_DONE or an error occurred. TODO
             None
         }
     }
