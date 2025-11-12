@@ -57,6 +57,7 @@ impl RowMapper for PersonMapper {
     }
 }
 
+// compiler is smart. It knows which Person based on the context.
 const Person: PersonMapper = PersonMapper;
 
 
@@ -75,6 +76,7 @@ fn main() {
     //     y.step();
 
     let statement = conn.prepare("SELECT * FROM users").unwrap();
+
 
     for person in statement.query(Person) {
         println!("Found user: {:?}", person);
