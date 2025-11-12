@@ -57,6 +57,9 @@ impl RowMapper for PersonMapper {
     }
 }
 
+const person_mapper: PersonMapper = PersonMapper;
+
+
 fn main() {
     let conn = Connection::open("his.db").unwrap();
     //     let y = conn
@@ -72,7 +75,6 @@ fn main() {
     //     y.step();
 
     let statement = conn.prepare("SELECT * FROM users").unwrap();
-    let person_mapper = PersonMapper;
 
     for person in statement.query(person_mapper) {
         println!("Found user: {:?}", person);
