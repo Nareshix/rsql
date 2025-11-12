@@ -57,7 +57,7 @@ impl RowMapper for PersonMapper {
     }
 }
 
-const person_mapper: PersonMapper = PersonMapper;
+const Person: PersonMapper = PersonMapper;
 
 
 fn main() {
@@ -76,7 +76,7 @@ fn main() {
 
     let statement = conn.prepare("SELECT * FROM users").unwrap();
 
-    for person in statement.query(person_mapper) {
+    for person in statement.query(Person) {
         println!("Found user: {:?}", person);
     }
 }
