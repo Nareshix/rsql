@@ -15,3 +15,5 @@ for some of the opeartions involving strings i added -1 which cause sqlite (inte
 
 
 have a execute_all feature with mulitp;le sql statement
+
+rn macros silently fail for unique constraint (this is where the compile time checks come in eventually)
