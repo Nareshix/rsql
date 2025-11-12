@@ -58,6 +58,7 @@ impl RowMapper for PersonMapper {
 }
 
 // compiler is smart. It knows which Person based on the context.
+// TODO static or const?
 const Person: PersonMapper = PersonMapper;
 
 
