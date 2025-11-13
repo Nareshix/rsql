@@ -30,8 +30,7 @@ impl Connection {
     }
 
     pub fn open_memory() -> Result<Self, Error> {
-        let flag = SQLITE_OPEN_MEMORY | SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE
-;
+        let flag = SQLITE_OPEN_MEMORY | SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
         Connection::open_with_flags(":memory:", flag)
     }
 
@@ -73,12 +72,12 @@ impl Connection {
             )
         };
 
-        // TODO        
+        // TODO
         // *ppStmt is left pointing to a compiled prepared statement that can be executed
-        //  using sqlite3_step(). If there is an error, *ppStmt is set to NULL. 
+        //  using sqlite3_step(). If there is an error, *ppStmt is set to NULL.
         // If the input text contains no SQL (if the input is an empty string or a comment)
-    //  then *ppStmt is set to NULL. The calling procedure is responsible for deleting 
-        // the compiled SQL statement using sqlite3_finalize() after it has finished with it. 
+        //  then *ppStmt is set to NULL. The calling procedure is responsible for deleting
+        // the compiled SQL statement using sqlite3_finalize() after it has finished with it.
         // ppStmt may not be NULL.
         if code == ffi::SQLITE_OK {
             Ok(Statement { conn: self, stmt })
