@@ -1,6 +1,6 @@
 use libsqlite3_sys::{SQLITE_ROW, sqlite3_step};
 
-use crate::{internal_sqlite::statement::Statement, traits::from_sql::RowMapper};
+use crate::{internal_sqlite::statement::Statement, traits::row_mapper::RowMapper};
 
 
 
