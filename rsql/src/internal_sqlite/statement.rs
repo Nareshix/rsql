@@ -5,7 +5,7 @@ use libsqlite3_sys::{
 
 use crate::{
     internal_sqlite::row::Rows,
-    traits::{from_sql::RowMapper, to_sql::ToSql},
+    traits::{ row_mapper::RowMapper, to_sql::ToSql},
     utility::utils::get_sqlite_failiure,
 };
 
