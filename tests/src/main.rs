@@ -15,6 +15,12 @@ fn main() {
     let statement = conn.prepare("SELECT * FROM users").unwrap();
 
     for person in statement.query(Person) {
-        println!("Found user: {:?}", person);
+        println!("Found user: {:?}", person.id);
+        println!("Found user: {:?}", person.username);
+        println!("Found user: {:?}", person.email);
+    }
+
+    for person in statement.query(Person) {
+        println!("{:?}", person);
     }
 }
