@@ -1,5 +1,4 @@
 use super::connection::Connection;
-use super::statement::Statement;
 
 
 //TODO
