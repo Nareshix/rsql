@@ -55,7 +55,7 @@ impl ToTokens for Execute {
             let indices = 1..=bindings.len() as i32;
 
             quote! {
-            // TODO should we use a block to keep `stmt` local
+            
             let stmt = #conn.prepare(#sql_statement)?;
             #(stmt.bind_parameter(#indices, #bindings)?;)*
             stmt.step()
