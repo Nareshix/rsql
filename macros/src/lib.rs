@@ -13,8 +13,6 @@ pub fn execute(input: TokenStream) -> TokenStream {
     quote! { #parsed_input }.into()
 }
 
-
-
 #[proc_macro_derive(SqlMapping)]
 pub fn my_macro(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -46,7 +44,12 @@ pub fn my_macro(input: TokenStream) -> TokenStream {
 
     let field_names = fields.iter().map(|f| f.ident.as_ref().unwrap());
     let expanded = quote! {
-        pub struct #mapper_struct_name;
+        use libsqlite3_sys::sqlite3_stmt;
+        use rsql::traits::row_mapper::RowMapper;
+        use rsql::traits::from_sql::FromSql;
+
+
+        struct #mapper_struct_name;
 
         impl RowMapper for #mapper_struct_name {
             type Output = #struct_name;
@@ -61,7 +64,7 @@ pub fn my_macro(input: TokenStream) -> TokenStream {
         }
 
         #[allow(non_upper_case_globals)]
-        pub const #struct_name: #mapper_struct_name = #mapper_struct_name;
+        const #struct_name: #mapper_struct_name = #mapper_struct_name;
     };
 
     TokenStream::from(expanded)
