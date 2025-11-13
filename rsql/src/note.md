@@ -19,3 +19,6 @@ have a execute_all feature with mulitp;le sql statement
 rn macros silently fail for unique constraint (this is where the compile time checks come in eventually)
 
 also, rn texts (and blobs) are converted each time (c to rust). maybe can use c string directly via lifetimes?
+
+
+query! macro might work as expected due to rust's lifetime. its quite a difficult task so ill leave it for now and focus it on the future (or maybe not)
