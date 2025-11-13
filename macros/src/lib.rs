@@ -1,17 +1,25 @@
 mod execute;
 mod mapping;
+mod query;
 
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Fields, Ident, parse_macro_input};
 
-use crate::execute::Execute;
+use crate::{execute::Execute, query::Query};
 
 #[proc_macro]
 pub fn execute(input: TokenStream) -> TokenStream {
     let parsed_input = parse_macro_input!(input as Execute);
     quote! { #parsed_input }.into()
 }
+
+#[proc_macro]
+pub fn query(input: TokenStream) -> TokenStream {
+    let parsed_input = parse_macro_input!(input as Query);
+    quote! { #parsed_input }.into()
+}
+
 
 #[proc_macro_derive(SqlMapping)]
 pub fn my_macro(input: TokenStream) -> TokenStream {
