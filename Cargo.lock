@@ -66,25 +66,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "test_macro"
-version = "0.1.0"
-dependencies = [
- "macros",
- "rsql",
-]
-
-[[package]]
-name = "test_main"
+name = "tests"
 version = "0.1.0"
 dependencies = [
  "libsqlite3-sys",
  "macros",
  "rsql",
 ]
-
-[[package]]
-name = "tests"
-version = "0.1.0"
 
 [[package]]
 name = "thiserror"
