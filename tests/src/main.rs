@@ -1,6 +1,4 @@
-use macros::SqlMapping;
-use rsql::internal_sqlite::connection::Connection;
-
+use rsql::{SqlMapping, check, internal_sqlite::connection::Connection};
 
 #[derive(Debug, SqlMapping)]
 struct Person {
@@ -9,10 +7,13 @@ struct Person {
     email: String,
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let conn = Connection::open("hi.db").unwrap();
 
-    let statement = conn.prepare("SELECT * FROM users").unwrap();
+    // execute!(conn, "INSERT INTO ", ())
+
+    let _ = check!("SELECT * FROM users");
+    let statement = conn.prepare("SELECT * FROM users")?;
 
     for person in statement.query(Person) {
         println!("Found user: {:?}", person.id);
@@ -23,4 +24,6 @@ fn main() {
     for person in statement.query(Person) {
         println!("{:?}", person);
     }
+
+    Ok(())
 }

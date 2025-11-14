@@ -18,6 +18,7 @@ version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
+ "rsql-core",
  "syn",
 ]
 
@@ -49,8 +50,15 @@ dependencies = [
 name = "rsql"
 version = "0.1.0"
 dependencies = [
- "libsqlite3-sys",
  "macros",
+ "rsql-core",
+]
+
+[[package]]
+name = "rsql-core"
+version = "0.1.0"
+dependencies = [
+ "libsqlite3-sys",
  "thiserror",
 ]
 
@@ -70,7 +78,6 @@ name = "tests"
 version = "0.1.0"
 dependencies = [
  "libsqlite3-sys",
- "macros",
  "rsql",
 ]
 
