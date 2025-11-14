@@ -1,29 +1,46 @@
-use rsql::{SqlMapping, check, internal_sqlite::connection::Connection};
-
-#[derive(Debug, SqlMapping)]
+#[derive(Debug, rsql::SqlMapping)]
 struct Person {
-    id: i32,
-    username: String,
-    email: String,
+    url: String,
+    caption: String,
 }
 
+use std::time::Instant;
+
+
+// results
+// rsql Elapsed: 136.88s
+// rusqlite Elapsed: 137.13s
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let conn = Connection::open("hi.db").unwrap();
+    // rsql
+    let conn = rsql::Connection::open("wukong.db").unwrap();
 
-    // execute!(conn, "INSERT INTO ", ())
+    let now = Instant::now();
 
-    let _ = check!("SELECT * FROM users");
-    let statement = conn.prepare("SELECT * FROM users")?;
+    let statement = conn.prepare("SELECT * FROM wukong_data")?;
+    for person in statement.query(Person) {}
 
-    for person in statement.query(Person) {
-        println!("Found user: {:?}", person.id);
-        println!("Found user: {:?}", person.username);
-        println!("Found user: {:?}", person.email);
-    }
+    let elapsed_rsql = now.elapsed();
+    // endrsql
 
-    for person in statement.query(Person) {
-        println!("{:?}", person);
-    }
+    //rusqlite
+    let now = Instant::now();
+
+    let conn = rusqlite::Connection::open("wukong.db")?;
+    let mut stmt = conn.prepare("SELECT * FROM wukong_data")?;
+    let person_iter = stmt.query_map([], |row| {
+        Ok(Person {
+            url: row.get(0)?,
+            caption: row.get(1)?,
+        })
+    })?;
+
+    for person in person_iter {}
+
+    let elapsed_rusqlite = now.elapsed();
+    //endrusqlite
+
+    println!("rsql Elapsed: {:.2?}", elapsed_rsql);
+    println!("rusqlite Elapsed: {:.2?}", elapsed_rusqlite);
 
     Ok(())
 }
