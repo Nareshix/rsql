@@ -1,12 +1,13 @@
 mod execute;
 mod mapping;
 mod query;
+mod compile_time_check;
 
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Fields, Ident, parse_macro_input};
 
-use crate::{execute::Execute, query::Query};
+use crate::{compile_time_check::Check, execute::Execute, query::Query};
 
 #[proc_macro]
 pub fn execute(input: TokenStream) -> TokenStream {
@@ -19,6 +20,13 @@ pub fn query(input: TokenStream) -> TokenStream {
     let parsed_input = parse_macro_input!(input as Query);
     quote! { #parsed_input }.into()
 }
+
+#[proc_macro]
+pub fn check(input: TokenStream) -> TokenStream {
+    let parsed_input = parse_macro_input!(input as Check);
+    quote! { #parsed_input }.into()
+}
+
 
 
 #[proc_macro_derive(SqlMapping)]
