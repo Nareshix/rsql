@@ -1,7 +1,7 @@
+mod compile_time_check;
 mod execute;
 mod mapping;
 mod query;
-mod compile_time_check;
 
 use proc_macro::TokenStream;
 use quote::quote;
@@ -26,8 +26,6 @@ pub fn check(input: TokenStream) -> TokenStream {
     let parsed_input = parse_macro_input!(input as Check);
     quote! { #parsed_input }.into()
 }
-
-
 
 #[proc_macro_derive(SqlMapping)]
 pub fn my_macro(input: TokenStream) -> TokenStream {
@@ -54,7 +52,7 @@ pub fn my_macro(input: TokenStream) -> TokenStream {
         let index = i as i32;
 
         quote! {
-            let #field_name = unsafe { #field_type::from_col(stmt, #index) };
+            let #field_name = unsafe { #field_type::from_sql(stmt, #index) };
         }
     });
 
@@ -63,7 +61,6 @@ pub fn my_macro(input: TokenStream) -> TokenStream {
         use libsqlite3_sys::sqlite3_stmt;
         use rsql::traits::row_mapper::RowMapper;
         use rsql::traits::from_sql::FromSql;
-
 
         struct #mapper_struct_name;
 
