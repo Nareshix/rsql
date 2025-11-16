@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let now = Instant::now();
 
-    let statement = conn.prepare("SELECT * FROM wukong_data WHERE url LIKE '%gss0%'")?;
+    let statement = conn.prepare("SELECT * FROM wukong_data WHERE url LIKE '%gss0%' LIMIT 10000")?;
     #[allow(unused)]
     for person in statement.query(Person) {
         // println!("{:?}", person);
@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let now = Instant::now();
 
     let conn = rusqlite::Connection::open("wukong.db")?;
-    let mut stmt = conn.prepare_cached("SELECT * FROM wukong_data WHERE url LIKE '%gss0%'")?;
+    let mut stmt = conn.prepare_cached("SELECT * FROM wukong_data WHERE url LIKE '%gss0%' LIMIT 10000")?;
     let person_iter = stmt.query_map([], |row| {
         Ok(Person {
             url: row.get(0)?,
