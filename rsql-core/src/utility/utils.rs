@@ -8,7 +8,8 @@ use std::{
     time::Duration,
 };
 
-use crate::utility::error::Error;
+use crate::utility::error::SqliteToRustConversionFailiure;
+
 
 pub enum RustTypes {
     Integer,
@@ -17,15 +18,15 @@ pub enum RustTypes {
     Null,
 }
 
-pub fn sqlite_to_rust_type_mapping(sqlite_type: i32) -> Result<RustTypes, Error> {
-    match sqlite_type {
-        SQLITE_INTEGER => Ok(RustTypes::Integer),
-        SQLITE_FLOAT => Ok(RustTypes::Float),
-        SQLITE_TEXT => Ok(RustTypes::String),
-        SQLITE_NULL => Ok(RustTypes::Null),
-        _ => Err(Error::SqliteToRustConversionFailiure),
-    }
-}
+// pub fn sqlite_to_rust_type_mapping(sqlite_type: i32) -> Result<RustTypes,SqliteToRustConversionFailiure> {
+//     match sqlite_type {
+//         SQLITE_INTEGER => Ok(RustTypes::Integer),
+//         SQLITE_FLOAT => Ok(RustTypes::Float),
+//         SQLITE_TEXT => Ok(RustTypes::String),
+//         SQLITE_NULL => Ok(RustTypes::Null),
+//         _ => Err(SqliteToRustConversionFailiure),
+//     }
+// }
 
 /// Internally calls sqlite3_errcode and sqlite3_errmsg to return 
 /// specifcally **Error::SqliteFailure** with the necessary code and error_msg
@@ -46,7 +47,6 @@ pub unsafe fn get_sqlite_failiure(db: *mut sqlite3) -> (i32, String) {
     (code, error_msg)    
 }
 
-/// This fn also handles SQLITE_BUSY error code, allowing for graceful shutdown
 ///
 /// # Safety
 ///
