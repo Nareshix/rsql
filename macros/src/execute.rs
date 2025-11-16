@@ -14,7 +14,6 @@ pub struct Execute {
 }
 
 impl Parse for Execute {
-    //TODO allow for optional tuples. shouldnt be hard
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let conn = input.parse()?;
         input.parse::<Token![,]>()?;
@@ -45,7 +44,7 @@ impl ToTokens for Execute {
 
         let generated_code = if sql_bindings.elems.is_empty() {
             quote! {
-                // TODO SHOULD WE STEP?
+                // TODO SHOULD WE STEP? we shouldnt, cuz we need to cache which will be implemented later
                 #conn.prepare(#sql_statement)?.step()
             }
         } else {

@@ -9,7 +9,6 @@ use std::{
 use crate::utility::{error::Error, utils::get_sqlite_failiure};
 use crate::{internal_sqlite::statement::Statement, utility::utils::close_db};
 
-//TODO use Refcell for better ergonomics (UNconfirmed)
 pub struct Connection {
     pub(crate) db: *mut sqlite3,
 }
@@ -37,7 +36,7 @@ impl Connection {
     // The flags refer to what mode to open the db in (readwrite, memory, etc)
     fn open_with_flags(filename: &str, flag: c_int) -> Result<Self, Error> {
         let mut db = ptr::null_mut();
-        //TODO handle expect
+        //TODO! handle expect
         let c_filename = CString::new(filename).expect("CString::new failed");
 
         let code = unsafe { ffi::sqlite3_open_v2(c_filename.as_ptr(), &mut db, flag, ptr::null()) };
@@ -59,7 +58,7 @@ impl Connection {
     }
 
     pub fn prepare(&self, sql: &str) -> Result<Statement<'_>, Error> {
-        //TODO handle expect
+        //TODO! handle expect
         let c_sql_query = CString::new(sql).expect("CString::new failed");
         let mut stmt = ptr::null_mut();
         let code = unsafe {
@@ -72,7 +71,7 @@ impl Connection {
             )
         };
 
-        // TODO
+        // TODO!
         // *ppStmt is left pointing to a compiled prepared statement that can be executed
         //  using sqlite3_step(). If there is an error, *ppStmt is set to NULL.
         // If the input text contains no SQL (if the input is an empty string or a comment)

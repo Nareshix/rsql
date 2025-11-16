@@ -22,7 +22,7 @@ impl<'a, M: RowMapper> Iterator for Rows<'a, M> {
             let item = unsafe { self.mapper.map_row(self.stmt.stmt) };
             Some(item)
         } else {
-            // SQLITE_DONE or an error occurred. TODO
+            // SQLITE_DONE or an error occurred. TODO!. if fail to map will panic
             None
         }
     }

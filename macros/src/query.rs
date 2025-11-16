@@ -15,7 +15,6 @@ pub struct Query {
 }
 
 impl Parse for Query {
-    //TODO allow for optional tuples. shouldnt be hard
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let conn = input.parse()?;
         input.parse::<Token![,]>()?;
