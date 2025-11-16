@@ -6,7 +6,11 @@ use std::{
     ptr,
 };
 
-use crate::{errors::{ SqliteFailure, open::SqliteOpenErrors}, internal_sqlite::statement::Statement, utility::utils::{close_db, get_sqlite_failiure}};
+use crate::{
+    errors::connection::{SqliteOpenErrors, SqlitePrepareErrors},
+    internal_sqlite::statement::Statement,
+    utility::utils::{close_db, get_sqlite_failiure},
+};
 
 pub struct Connection {
     pub(crate) db: *mut sqlite3,
@@ -35,8 +39,9 @@ impl Connection {
     // The flags refer to what mode to open the db in (readwrite, memory, etc)
     fn open_with_flags(filename: &str, flag: c_int) -> Result<Self, SqliteOpenErrors> {
         let mut db = ptr::null_mut();
-        //TODO! handle expect
-        let c_filename = CString::new(filename).expect("CString::new failed");
+
+        let c_filename =
+            CString::new(filename).map_err(|_| SqliteOpenErrors::EmbeddedNullInFileName)?;
 
         let code = unsafe { ffi::sqlite3_open_v2(c_filename.as_ptr(), &mut db, flag, ptr::null()) };
 
@@ -56,9 +61,9 @@ impl Connection {
         }
     }
 
-    pub fn prepare(&self, sql: &str) -> Result<Statement<'_>, SqliteFailure> {
-        //TODO! handle expect
-        let c_sql_query = CString::new(sql).expect("CString::new failed");
+    pub fn prepare(&self, sql: &str) -> Result<Statement<'_>, SqlitePrepareErrors> {
+        let c_sql_query = CString::new(sql).map_err(|_| SqlitePrepareErrors::EmbeddedNullInSql)?;
+
         let mut stmt = ptr::null_mut();
         let code = unsafe {
             ffi::sqlite3_prepare_v2(
@@ -70,7 +75,7 @@ impl Connection {
             )
         };
 
-        //  
+        // TODO
         // *ppStmt is left pointing to a compiled prepared statement that can be executed
         //  using sqlite3_step(). If there is an error, *ppStmt is set to NULL.
         // If the input text contains no SQL (if the input is an empty string or a comment)
@@ -81,7 +86,7 @@ impl Connection {
             Ok(Statement { conn: self, stmt })
         } else {
             let (code, error_msg) = unsafe { get_sqlite_failiure(self.db) };
-            Err(SqliteFailure { code, error_msg })
+            Err(SqlitePrepareErrors::SqliteFailure { code, error_msg })
         }
     }
 }
