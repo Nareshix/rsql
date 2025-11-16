@@ -1,6 +1,5 @@
 mod compile_time_check;
 mod execute;
-mod mapping;
 mod query;
 
 use proc_macro::TokenStream;
