@@ -22,3 +22,7 @@ also, rn texts (and blobs) are converted each time (c to rust). maybe can use c 
 
 
 query! macro might work as expected due to rust's lifetime. its quite a difficult task so ill leave it for now and focus it on the future (or maybe not)
+
+offer an option that acutally allows teh desired syntax (let result = query!()) but do inform them that it is inefficent as it colelcts them into a vec ro other data types
+
+tuple expresison and bind parameter compile time doesnt check
