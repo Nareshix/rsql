@@ -6,10 +6,10 @@ use libsqlite3_sys::{
 use crate::{
     internal_sqlite::row::Rows,
     traits::{ row_mapper::RowMapper, to_sql::ToSql},
-    utility::utils::get_sqlite_failiure,
+    utility::{error::SqliteFailure, utils::get_sqlite_failiure},
 };
 
-use crate::{internal_sqlite::connection::Connection, utility::error::Error};
+use crate::{internal_sqlite::connection::Connection};
 
 #[allow(dead_code)]
 // #[derive(Debug)]
@@ -35,12 +35,12 @@ impl Statement<'_> {
     ///note index start from 1 and not 0
     /// TODO consider &impl ToSql to prevent moving?
     #[allow(unused)]
-    pub fn bind_parameter(&self, index: i32, value: impl ToSql) -> Result<(), Error> {
+    pub fn bind_parameter(&self, index: i32, value: impl ToSql) -> Result<(), SqliteFailure> {
         let code = unsafe { value.bind_to(self.stmt, index) };
 
         if code != SQLITE_OK {
             let (code, error_msg) = unsafe { get_sqlite_failiure(self.conn.db) };
-            Err(Error::SqliteFailure { code, error_msg })
+            Err(SqliteFailure { code, error_msg })
         } else {
             Ok(())
         }

@@ -6,7 +6,7 @@ use std::{
     ptr,
 };
 
-use crate::utility::{error::Error, utils::get_sqlite_failiure};
+use crate::utility::{error::{SqliteFailure, SqliteOpenErrors}, utils::get_sqlite_failiure};
 use crate::{internal_sqlite::statement::Statement, utility::utils::close_db};
 
 pub struct Connection {
@@ -22,19 +22,19 @@ impl Drop for Connection {
 }
 
 impl Connection {
-    pub fn open(filename: &str) -> Result<Self, Error> {
+    pub fn open(filename: &str) -> Result<Self, SqliteOpenErrors> {
         let flag = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
 
         Connection::open_with_flags(filename, flag)
     }
 
-    pub fn open_memory() -> Result<Self, Error> {
+    pub fn open_memory() -> Result<Self, SqliteOpenErrors> {
         let flag = SQLITE_OPEN_MEMORY | SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
         Connection::open_with_flags(":memory:", flag)
     }
 
     // The flags refer to what mode to open the db in (readwrite, memory, etc)
-    fn open_with_flags(filename: &str, flag: c_int) -> Result<Self, Error> {
+    fn open_with_flags(filename: &str, flag: c_int) -> Result<Self, SqliteOpenErrors> {
         let mut db = ptr::null_mut();
         //TODO! handle expect
         let c_filename = CString::new(filename).expect("CString::new failed");
@@ -45,7 +45,7 @@ impl Connection {
             unsafe {
                 close_db(db);
             };
-            Err(Error::ConnectionAllocationFailed)
+            Err(SqliteOpenErrors::ConnectionAllocationFailed)
         } else if code == SQLITE_OK {
             Ok(Connection { db })
         } else {
@@ -53,11 +53,11 @@ impl Connection {
             unsafe {
                 close_db(db);
             };
-            Err(Error::SqliteFailure { code, error_msg })
+            Err(SqliteOpenErrors::SqliteFailure { code, error_msg })
         }
     }
 
-    pub fn prepare(&self, sql: &str) -> Result<Statement<'_>, Error> {
+    pub fn prepare(&self, sql: &str) -> Result<Statement<'_>, SqliteFailure> {
         //TODO! handle expect
         let c_sql_query = CString::new(sql).expect("CString::new failed");
         let mut stmt = ptr::null_mut();
@@ -71,7 +71,7 @@ impl Connection {
             )
         };
 
-        // TODO!
+        //  
         // *ppStmt is left pointing to a compiled prepared statement that can be executed
         //  using sqlite3_step(). If there is an error, *ppStmt is set to NULL.
         // If the input text contains no SQL (if the input is an empty string or a comment)
@@ -82,7 +82,7 @@ impl Connection {
             Ok(Statement { conn: self, stmt })
         } else {
             let (code, error_msg) = unsafe { get_sqlite_failiure(self.db) };
-            Err(Error::SqliteFailure { code, error_msg })
+            Err(SqliteFailure { code, error_msg })
         }
     }
 }
