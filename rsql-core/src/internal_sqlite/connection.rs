@@ -1,5 +1,5 @@
 use libsqlite3_sys::{
-    self as ffi, SQLITE_OK, SQLITE_OPEN_CREATE, SQLITE_OPEN_MEMORY, SQLITE_OPEN_READWRITE, sqlite3,
+    self as ffi, SQLITE_OK, SQLITE_OPEN_CREATE, SQLITE_OPEN_MEMORY, SQLITE_OPEN_READWRITE, sqlite3, sqlite3_busy_timeout,
 };
 use std::{
     ffi::{CString, c_int},
@@ -51,6 +51,9 @@ impl Connection {
             };
             Err(SqliteOpenErrors::ConnectionAllocationFailed)
         } else if code == SQLITE_OK {
+            //TODO sqlite3_busy_timeout does return an int. It is nearly a gurantee for this 
+            // function to never fail. but its still good to handle it. 
+            unsafe { sqlite3_busy_timeout(db, 5000) };
             Ok(Connection { db })
         } else {
             let (code, error_msg) = unsafe { get_sqlite_failiure(db) };

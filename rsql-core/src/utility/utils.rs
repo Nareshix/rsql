@@ -51,14 +51,8 @@ pub unsafe fn get_sqlite_failiure(db: *mut sqlite3) -> (i32, String) {
 ///
 /// - db must be a valid sqlite3 connection which is not NULL  
 pub unsafe fn close_db(db: *mut sqlite3) {
-    //TODO idt u should loop? perhaps a timeout? porblematic during long running services tho...
-    loop {
-        let code = unsafe { ffi::sqlite3_close(db) };
+    // TODO returns SQLITE_BUSY. but dpeending on the strucurre of my code dont have to deal with it
+    // also sqlite3_close_v2 is only for gc languages hence sqlite3_close is preferred
+    unsafe { ffi::sqlite3_close(db) };
 
-        if code == SQLITE_BUSY {
-            thread::sleep(Duration::from_millis(5000));
-        } else {
-            break;
-        }
-    }
 }
