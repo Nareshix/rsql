@@ -1,11 +1,11 @@
 #[derive(Debug, rsql::SqlMapping)]
+#[allow(unused)]
 struct Person {
     url: String,
     caption: String,
 }
 
 use std::time::Instant;
-
 
 // results for select * from table
 // rsql Elapsed: 136.88s
@@ -17,6 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let now = Instant::now();
 
     let statement = conn.prepare("SELECT * FROM wukong_data WHERE url LIKE '%gss0%'")?;
+    #[allow(unused)]
     for person in statement.query(Person) {
         // println!("{:?}", person);
     }
@@ -36,6 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
     })?;
 
+    #[allow(unused)]
     for person in person_iter {
         // println!("{:?}", person.unwrap())
     }
