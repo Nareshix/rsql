@@ -4,9 +4,7 @@ use libsqlite3_sys::{
 };
 
 use crate::{
-    internal_sqlite::row::Rows,
-    traits::{ row_mapper::RowMapper, to_sql::ToSql},
-    utility::{error::SqliteFailure, utils::get_sqlite_failiure},
+    errors::SqliteFailure, internal_sqlite::row::Rows, traits::{ row_mapper::RowMapper, to_sql::ToSql}, utility::utils::get_sqlite_failiure
 };
 
 use crate::{internal_sqlite::connection::Connection};
@@ -34,7 +32,7 @@ impl Statement<'_> {
 
     ///note index start from 1 and not 0
     /// TODO consider &impl ToSql to prevent moving?
-    #[allow(unused)]
+    #[allow(unused)]    
     pub fn bind_parameter(&self, index: i32, value: impl ToSql) -> Result<(), SqliteFailure> {
         let code = unsafe { value.bind_to(self.stmt, index) };
 

@@ -6,8 +6,7 @@ use std::{
     ptr,
 };
 
-use crate::utility::{error::{SqliteFailure, SqliteOpenErrors}, utils::get_sqlite_failiure};
-use crate::{internal_sqlite::statement::Statement, utility::utils::close_db};
+use crate::{errors::{ SqliteFailure, open::SqliteOpenErrors}, internal_sqlite::statement::Statement, utility::utils::{close_db, get_sqlite_failiure}};
 
 pub struct Connection {
     pub(crate) db: *mut sqlite3,

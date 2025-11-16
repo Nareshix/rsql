@@ -1,5 +1,5 @@
 use libsqlite3_sys::{
-    self as ffi, SQLITE_BUSY, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL, SQLITE_TEXT, sqlite3,
+    self as ffi, SQLITE_BUSY, sqlite3,
     sqlite3_errcode,
 };
 use std::{
@@ -8,7 +8,6 @@ use std::{
     time::Duration,
 };
 
-use crate::utility::error::SqliteToRustConversionFailiure;
 
 
 pub enum RustTypes {
