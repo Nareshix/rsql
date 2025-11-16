@@ -2,7 +2,7 @@ use std::ffi::c_int;
 
 
 
-pub mod open;
+pub mod connection;
 
 
 #[derive(thiserror::Error, Debug)]
