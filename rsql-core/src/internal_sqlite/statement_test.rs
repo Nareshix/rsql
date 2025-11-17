@@ -13,7 +13,7 @@ fn test_single_binding() {
 
     stmt.bind_parameter(1, "Alice").expect("failed to bind parameters. This might happen due to not having the asd.db file in root directory of rsql"); 
 
-    stmt.step();
+    let _ = stmt.step();
 
 }
 
@@ -28,6 +28,6 @@ fn test_multiple_binding() {
     stmt.bind_parameter(1, "Alice").expect("failed to bind parameters. This might happen due to not having the asd.db file in root directory of rsql"); 
     stmt.bind_parameter(2, "Alice").expect("failed to bind parameters. This might happen due to not having the asd.db file in root directory of rsql"); 
 
-    stmt.step();
+    let _ = stmt.step();
 
 }

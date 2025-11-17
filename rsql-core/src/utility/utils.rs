@@ -1,12 +1,8 @@
 use libsqlite3_sys::{
-    self as ffi, SQLITE_BUSY, sqlite3,
+    self as ffi, sqlite3,
     sqlite3_errcode,
 };
-use std::{
-    ffi::{CStr, c_char},
-    thread,
-    time::Duration,
-};
+use std::ffi::{CStr, c_char};
 
 
 
