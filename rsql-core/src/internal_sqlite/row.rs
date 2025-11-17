@@ -1,8 +1,9 @@
-use libsqlite3_sys::{SQLITE_ROW, sqlite3_step};
+use libsqlite3_sys::{SQLITE_BUSY, SQLITE_ERROR, SQLITE_ROW, sqlite3_step};
 
-use crate::{internal_sqlite::statement::Statement, traits::row_mapper::RowMapper};
-
-
+use crate::{
+    errors::row::RowMapperError, internal_sqlite::statement::Statement,
+    traits::row_mapper::RowMapper, utility::utils::get_sqlite_failiure,
+};
 
 #[allow(dead_code)]
 pub struct Rows<'a, M: RowMapper> {
@@ -12,17 +13,21 @@ pub struct Rows<'a, M: RowMapper> {
 
 impl<'a, M: RowMapper> Iterator for Rows<'a, M> {
     // The Output refers to the original struct predefined by user (TODO, better explanation)
-    type Item = M::Output;
+    type Item = Result<M::Output, RowMapperError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let result_code = unsafe { sqlite3_step(self.stmt.stmt) };
 
         if result_code == SQLITE_ROW {
             // Call the map_row method on our stored mapper instance.
-            let item = unsafe { self.mapper.map_row(self.stmt.stmt) };
-            Some(item)
+        let item = unsafe { self.mapper.map_row(self.stmt.stmt) };
+            Some(Ok(item))
+        } else if result_code == SQLITE_BUSY {
+            Some(Err(RowMapperError::SqliteBusy))
+        } else if result_code == SQLITE_ERROR {
+            let (code, error_msg) = unsafe { get_sqlite_failiure(self.stmt.conn.db) };
+            Some(Err(RowMapperError::SqliteFailure { code, error_msg }))
         } else {
-            // SQLITE_DONE or an error occurred. TODO!. if fail to map will panic
             None
         }
     }
