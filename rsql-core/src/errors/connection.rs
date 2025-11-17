@@ -13,8 +13,8 @@ pub enum SqliteOpenErrors {
     SqliteFailure { code: c_int, error_msg: String },
 
     /// Make sure that there is no Null byte in the file
-    #[error("Make sure that there is no Null byte in the file")]
-    EmbeddedNullInFileName,
+    #[error("{filename} contains a null byte. Make sure that there is no Null byte in the file")]
+    EmbeddedNullInFileName { filename: String },
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -23,11 +23,7 @@ pub enum SqlitePrepareErrors {
     #[error("SQLite error {code}: {error_msg}")]
     SqliteFailure { code: c_int, error_msg: String },
 
-
     /// Make sure that there is no Null byte in the sql statement
     #[error("Make sure that there is no Null byte in sql statement")]
     EmbeddedNullInSql,
-
-
-    
 }
