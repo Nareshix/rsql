@@ -1,6 +1,6 @@
 use std::ffi::CStr;
 
-use libsqlite3_sys::sqlite3_stmt;
+use libsqlite3_sys::{SQLITE_NULL, sqlite3_column_type, sqlite3_stmt};
 
 // no errors cuz sqlite does implicit conversion
 pub trait FromSql {
@@ -17,7 +17,6 @@ impl FromSql for String {
     }
 }
 
-// TODO 
 // impl FromSql for &str {
 //     unsafe fn from_sql(stmt: *mut sqlite3_stmt, index: i32) -> Self {
 //         let c_string = unsafe { libsqlite3_sys::sqlite3_column_text(stmt, index) } as *const i8;
@@ -42,10 +41,14 @@ impl FromSql for i64 {
     }
 }
 
-//TODO
+impl<T: FromSql> FromSql for Option<T> {
+    unsafe fn from_sql(stmt: *mut sqlite3_stmt, index: i32) -> Self {
+        let column_type = unsafe { sqlite3_column_type(stmt, index) };
 
-// impl<T:FromSql> FromSql for Option<T>{
-//     unsafe fn from_sql(stmt: *mut sqlite3_stmt, index: i32) -> Self {
-//         if
-//     }
-// }
+        if column_type == SQLITE_NULL {
+            None
+        } else {
+            Some(unsafe { T::from_sql(stmt, index) })
+        }
+    }
+}
