@@ -3,6 +3,7 @@ use std::ffi::c_int;
 
 
 pub mod connection;
+pub mod row;
 
 
 #[derive(thiserror::Error, Debug)]
