@@ -51,22 +51,23 @@ pub fn my_macro(input: TokenStream) -> TokenStream {
         let index = i as i32;
 
         quote! {
-            let #field_name = unsafe { #field_type::from_sql(stmt, #index) };
+            let #field_name = unsafe
+            {
+            <#field_type as rsql::traits::from_sql::FromSql>::from_sql(stmt, #index)
+            };
+
         }
     });
 
     let field_names = fields.iter().map(|f| f.ident.as_ref().unwrap());
     let expanded = quote! {
-        use libsqlite3_sys::sqlite3_stmt;
-        use rsql::traits::row_mapper::RowMapper;
-        use rsql::traits::from_sql::FromSql;
 
         struct #mapper_struct_name;
 
-        impl RowMapper for #mapper_struct_name {
+        impl rsql::traits::row_mapper::RowMapper for #mapper_struct_name {
             type Output = #struct_name;
 
-            unsafe fn map_row(&self, stmt: *mut sqlite3_stmt) -> Self::Output {
+            unsafe fn map_row(&self, stmt: *mut libsqlite3_sys::sqlite3_stmt) -> Self::Output {
                 #(#field_bindings)*
 
                 Self::Output {
