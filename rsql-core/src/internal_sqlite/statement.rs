@@ -1,13 +1,17 @@
 use libsqlite3_sys::{
-    SQLITE_OK, sqlite3_clear_bindings, sqlite3_finalize, sqlite3_reset, sqlite3_step,
-    sqlite3_stmt,
+    SQLITE_BUSY, SQLITE_CONSTRAINT_CHECK, SQLITE_CONSTRAINT_FOREIGNKEY,
+    SQLITE_CONSTRAINT_PRIMARYKEY, SQLITE_CONSTRAINT_UNIQUE, SQLITE_OK, sqlite3_clear_bindings,
+    sqlite3_finalize, sqlite3_reset, sqlite3_step, sqlite3_stmt,
 };
 
 use crate::{
-    errors::SqliteFailure, internal_sqlite::row::Rows, traits::{ row_mapper::RowMapper, to_sql::ToSql}, utility::utils::get_sqlite_failiure
+    errors::{SqliteFailure, statement::StatementStepErrors},
+    internal_sqlite::row::Rows,
+    traits::{row_mapper::RowMapper, to_sql::ToSql},
+    utility::utils::get_sqlite_failiure,
 };
 
-use crate::{internal_sqlite::connection::Connection};
+use crate::internal_sqlite::connection::Connection;
 
 #[allow(dead_code)]
 // #[derive(Debug)]
@@ -32,7 +36,7 @@ impl Statement<'_> {
 
     ///note index start from 1 and not 0
     /// TODO consider &impl ToSql to prevent moving?
-    #[allow(unused)]    
+    #[allow(unused)]
     pub fn bind_parameter(&self, index: i32, value: impl ToSql) -> Result<(), SqliteFailure> {
         let code = unsafe { value.bind_to(self.stmt, index) };
 
@@ -60,9 +64,25 @@ impl Statement<'_> {
     /// else, SQLITE_DONE (or smth else TODO check again)
     ///
     /// TODO: do we need to warn whether returns nothing? like during compile time check
-    pub fn step(&self) -> i32 {
+    pub fn step(&self) -> Result<(), StatementStepErrors> {
         // TODO error handling?
-        unsafe { sqlite3_step(self.stmt) }
+        let code = unsafe { sqlite3_step(self.stmt) };
+
+        if code == SQLITE_BUSY {
+            return Err(StatementStepErrors::SqliteBusy);
+        }
+
+        let (code, error_msg) = unsafe { get_sqlite_failiure(self.conn.db) };
+
+        if code == SQLITE_CONSTRAINT_FOREIGNKEY {
+            Err(StatementStepErrors::ForeignKeyConstraint { code, error_msg })
+        } else if code == SQLITE_CONSTRAINT_UNIQUE {
+            Err(StatementStepErrors::UniqueConstraint { code, error_msg })
+        } else if code == SQLITE_CONSTRAINT_CHECK {
+            Err(StatementStepErrors::CheckConstraint { code, error_msg })
+        } else {
+            Ok(())
+        }
     }
 
     pub fn query<'a, M: RowMapper>(&'a self, mapper: M) -> Rows<'a, M> {
