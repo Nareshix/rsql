@@ -15,7 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let now = Instant::now();
 
     // rsql
-    let conn = rsql::Connection::open("mom.db").unwrap();
+    let _conn = rsql::Connection::open("mom.db").unwrap();
 
 //     conn.prepare(
 //         "CREATE TABLE users (
