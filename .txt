@@ -1,0 +1,13 @@
+when hit wih api,
+
+1. checks cache
+2. if dont exist, prepares staement and cache it
+3. run write or read operaion (loop the cursor), in other words, step()
+4. after ur done reset the staement. don finalise the statement
+
+
+looping (bulk insert large data in batches. never loop select statements, they can awlays be done in sql query and u loop the cursor)
+1. checks cache
+2. if dont exist, prepares staement and cache it
+3. run the loop  and in each loop reset the statement
+4. dont finalise the statemnet
