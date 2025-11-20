@@ -31,7 +31,7 @@ impl Drop for RawStatement {
 }
 pub struct Connection {
     pub(crate) db: *mut sqlite3,
-    pub(crate) cache: RefCell<HashMap<String, RawStatement>>, //ik
+    pub(crate) cache: RefCell<HashMap<String, RawStatement>>, //TODO just a random thoguhut, maybe use smart pointer to make it faster instead of converting all &str to String
 }
 
 impl Drop for Connection {
