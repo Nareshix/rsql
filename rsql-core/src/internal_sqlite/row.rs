@@ -1,4 +1,4 @@
-use libsqlite3_sys::{SQLITE_BUSY, SQLITE_DONE, SQLITE_ERROR, SQLITE_ROW, sqlite3_step};
+use libsqlite3_sys::{SQLITE_BUSY, SQLITE_DONE, SQLITE_ROW, sqlite3_step};
 
 use crate::{
     errors::row::RowMapperError, internal_sqlite::statement::Statement,
