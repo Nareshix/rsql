@@ -1,6 +1,7 @@
 use libsqlite3_sys::{
-    SQLITE_BUSY, SQLITE_CONSTRAINT_CHECK, SQLITE_CONSTRAINT_FOREIGNKEY, SQLITE_CONSTRAINT_UNIQUE, SQLITE_OK, sqlite3_clear_bindings,
-    sqlite3_finalize, sqlite3_reset, sqlite3_step, sqlite3_stmt,
+    SQLITE_BUSY, SQLITE_CONSTRAINT_CHECK, SQLITE_CONSTRAINT_FOREIGNKEY, SQLITE_CONSTRAINT_UNIQUE,
+    SQLITE_DONE, SQLITE_OK, sqlite3_clear_bindings, sqlite3_finalize, sqlite3_reset, sqlite3_step,
+    sqlite3_stmt,
 };
 
 use crate::{
@@ -15,13 +16,36 @@ use crate::internal_sqlite::connection::Connection;
 #[allow(dead_code)]
 // #[derive(Debug)]
 pub struct Statement<'a> {
-    pub conn: &'a Connection,
-    pub stmt: *mut sqlite3_stmt,
+    pub(crate) conn: &'a Connection,
+    pub(crate) stmt: *mut sqlite3_stmt,
+    pub(crate) key: Option<String>,
+}
+
+impl Statement<'_> {
+    fn reset(&self) {
+        // If key exists, the stmt exists in the cache
+        if let Some(ref key) = self.key {
+            let mut cache = self.conn.cache.borrow_mut();
+
+            if let Some(cached_stmt) = cache.get_mut(key) {
+                cached_stmt.in_use = false;
+                unsafe {
+                    sqlite3_reset(self.stmt);
+                    sqlite3_clear_bindings(self.stmt);
+                }
+            }
+        } else {
+            // this stmt doesnt live in the cache, so we have to manually destroy it
+            unsafe {
+                sqlite3_finalize(self.stmt);
+            }
+        }
+    }
 }
 
 impl Drop for Statement<'_> {
     fn drop(&mut self) {
-        unsafe { sqlite3_finalize(self.stmt) };
+        self.reset();
     }
 }
 
@@ -47,21 +71,7 @@ impl Statement<'_> {
         }
     }
 
-    #[allow(unused)]
-    pub fn reset(&self) {
-        //TODO error hanndle code
-        unsafe { sqlite3_reset(self.stmt) };
-    }
-    #[allow(unused)]
-    pub fn clear_bindings(&self) {
-        unsafe { sqlite3_clear_bindings(self.stmt) };
-        //  return code is always SQLITE_OK according to rusqlite
-        // Not necessary in ur case, pls double cehck again TODO
-    }
-
-    /// returns SQLITE_ROW  if there is available rows
-    /// else, SQLITE_DONE (or smth else TODO check again)
-    ///
+    /// Strictly only used for write only operation (UPDATE, INSERT etc.)
     /// TODO: do we need to warn whether returns nothing? like during compile time check
     pub fn step(&self) -> Result<(), StatementStepErrors> {
         // TODO error handling?
@@ -79,8 +89,12 @@ impl Statement<'_> {
             Err(StatementStepErrors::UniqueConstraint { code, error_msg })
         } else if code == SQLITE_CONSTRAINT_CHECK {
             Err(StatementStepErrors::CheckConstraint { code, error_msg })
-        } else {
+        } else if code == SQLITE_DONE {
+            // Since step is one time use, its safe to immediately reset the stmt
+            self.reset();
             Ok(())
+        } else {
+            Err(StatementStepErrors::SqliteFailure { code, error_msg })
         }
     }
 
