@@ -10,6 +10,15 @@ pub struct Rows<'a, M: RowMapper> {
     pub stmt: &'a Statement<'a>,
     pub mapper: M,
 }
+
+// if Rows gets dropped b4 statement does,  reset the sqlite3_stmt
+// warning, double free for non cached sql statements (no rlly sqlie docs says Invoking sqlite3_finalize() on a NULL pointer is a harmless no-op.). double reset is fine
+impl<'a, M:RowMapper> Drop for Rows<'a, M> {
+    fn drop(&mut self) {
+        self.stmt.reset();
+    }
+}
+
 //TODO wht if rowmapper goes out of scope? wht owuld u do with the sqlite3_stmt
 impl<'a, M: RowMapper> Iterator for Rows<'a, M> {
     // The Output refers to the original struct predefined by user (TODO, better explanation)
