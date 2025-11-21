@@ -7,13 +7,11 @@ use crate::{
 
 #[allow(dead_code)]
 pub struct Rows<'a, M: RowMapper> {
-    pub stmt: &'a Statement<'a>,
+    pub stmt: Statement<'a>,
     pub mapper: M,
 }
 
-// if Rows gets dropped b4 statement does,  reset the sqlite3_stmt
-// warning, double free for non cached sql statements (no rlly sqlie docs says Invoking sqlite3_finalize() on a NULL pointer is a harmless no-op.). double reset is fine
-impl<'a, M:RowMapper> Drop for Rows<'a, M> {
+impl<'a, M: RowMapper> Drop for Rows<'a, M> {
     fn drop(&mut self) {
         self.stmt.reset();
     }
@@ -29,17 +27,17 @@ impl<'a, M: RowMapper> Iterator for Rows<'a, M> {
 
         if result_code == SQLITE_ROW {
             // Call the map_row method on our stored mapper instance.
-        let item = unsafe { self.mapper.map_row(self.stmt.stmt) };
+            let item = unsafe { self.mapper.map_row(self.stmt.stmt) };
             Some(Ok(item))
         } else if result_code == SQLITE_BUSY {
             Some(Err(RowMapperError::SqliteBusy))
         } else if result_code == SQLITE_DONE {
+            // when we exhaused the iterator, it has no use anymore. so we immediately reset it
             self.stmt.reset();
             None
         } else {
             let (code, error_msg) = unsafe { get_sqlite_failiure(self.stmt.conn.db) };
             Some(Err(RowMapperError::SqliteFailure { code, error_msg }))
-
         }
     }
 }

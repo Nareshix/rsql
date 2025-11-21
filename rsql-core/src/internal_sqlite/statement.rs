@@ -1,3 +1,5 @@
+use std::ptr;
+
 use libsqlite3_sys::{
     SQLITE_BUSY, SQLITE_CONSTRAINT_CHECK, SQLITE_CONSTRAINT_FOREIGNKEY, SQLITE_CONSTRAINT_UNIQUE,
     SQLITE_DONE, SQLITE_OK, sqlite3_clear_bindings, sqlite3_finalize, sqlite3_reset, sqlite3_step,
@@ -21,14 +23,14 @@ use crate::internal_sqlite::connection::Connection;
 pub struct Statement<'a> {
     pub(crate) conn: &'a Connection,
     pub(crate) stmt: *mut sqlite3_stmt,
-     // store the sql statement (as key) to search for the sqlite3_stmt in O(1) operation 
-     // in the hashmap. This is None if cache exist and is being in used so we have to manually destroy
-     // this statement since it wasnt stored in the hashmap to begin with.
+    // store the sql statement (as key) to search for the sqlite3_stmt in O(1) operation
+    // in the hashmap. This is None if cache exist and is being in used so we have to manually destroy
+    // this statement since it wasnt stored in the hashmap to begin with.
     pub(crate) key: Option<String>,
 }
 
 impl Statement<'_> {
-    pub fn reset(&self) {
+    pub fn reset(&mut self) {
         // If cache exists
         if let Some(ref key) = self.key {
             let mut cache = self.conn.cache.borrow_mut();
@@ -40,22 +42,18 @@ impl Statement<'_> {
                     sqlite3_clear_bindings(self.stmt);
                 }
             }
-        } else {
-            // this stmt doesnt live in the cache, so we have to manually destroy it
+        }
+        // this stmt doesnt live in the cache, so we have to manually destroy it
+        else {
             unsafe {
                 sqlite3_finalize(self.stmt);
             }
+            // Finalizing null statements is safe no-op according to the docs.
+            // assign it as null to prevent double free of the uncached stmts
+            self.stmt = ptr::null_mut();
         }
     }
-}
 
-impl Drop for Statement<'_> {
-    fn drop(&mut self) {
-        self.reset();
-    }
-}
-
-impl Statement<'_> {
     //TODO
     //If any of the sqlite3_bind_*() routines are called with a NULL pointer for the
     // prepared statement or with a prepared statement for which sqlite3_step()
@@ -79,7 +77,7 @@ impl Statement<'_> {
 
     /// Strictly only used for write only operation (UPDATE, INSERT etc.)
     /// TODO: do we need to warn whether returns nothing? like during compile time check
-    pub fn step(&self) -> Result<(), StatementStepErrors> {
+    pub fn step(&mut self) -> Result<(), StatementStepErrors> {
         // TODO error handling?
         let code = unsafe { sqlite3_step(self.stmt) };
 
@@ -103,8 +101,10 @@ impl Statement<'_> {
             Err(StatementStepErrors::SqliteFailure { code, error_msg })
         }
     }
+}
 
-    pub fn query<'a, M: RowMapper>(&'a self, mapper: M) -> Rows<'a, M> {
+impl<'a> Statement<'a> {
+    pub fn query<M: RowMapper>(self, mapper: M) -> Rows<'a, M> {
         Rows { stmt: self, mapper }
     }
 }
