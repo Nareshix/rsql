@@ -36,7 +36,6 @@ impl Drop for Statement<'_> {
 }
 
 impl Statement<'_> {
-    /// this fn is indempotent
     pub fn reset(&mut self) {
         // If cache exists
         if let Some(ref key) = self.key {
