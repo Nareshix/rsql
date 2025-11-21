@@ -5,6 +5,23 @@ CString::new states that the rust code given must not contain a null pointer ins
 handle those cases as well. currently i unwarap it. 
 
 
+SQLITE_LIMIT_VARIABLE_NUMBER for bulk insert
+
+
+when hit wih api,
+
+1. checks cache
+2. if dont exist, prepares staement and cache it
+3. run write or read operaion (loop the cursor)
+4. after ur done reset the staement. don finalise the statement
+
+
+looping (bulk insert large data in batches. never loop select statements, they can awlays be done in sql query and u loop the cursor)
+1. checks cache
+2. if dont exist, prepares staement and cache it
+3. run the loop  and in each loop reset the statement
+4. dont finalise the statemnet
+
 
 
 
@@ -27,3 +44,4 @@ offer an option that acutally allows teh desired syntax (let result = query!()) 
 tuple expresison and bind parameter compile time doesnt check
 
 consider prepare_v3 with SQLITE_PREPARE_DONT_LOG and SQLITE_PREPARE_PERSISTENT flag
+consider using a vector instead of hashmap. realistically an app usulaly wouldnt have that many cached statements in the first place

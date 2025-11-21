@@ -1,0 +1,36 @@
+fn return_iterator_withhout_lifetime_pollution(){
+    conn.prepare("").binding().query();
+}
+
+fn take_iterator(){ //note can be either move or borrow the iterator
+    do whatver
+}
+
+
+fn main(){
+    let conn = Connection::open("")
+
+    conn.prepare("").binding().step();
+    
+    let result = conn.prepare("").binding().query();
+    for i in result {
+        do whatever
+    }
+
+    let result = conn.prepare("").binding().query();
+    take_iterator(result)
+
+
+    let result = conn.prepare("").binding().query();
+    take_iterator(&result)
+   
+
+
+    execute!(conn, sql, binding)
+
+    let result = query!(conn, mapping, sql, binding);
+
+}
+
+
+
