@@ -11,11 +11,7 @@ pub struct Rows<'a, M: RowMapper> {
     pub mapper: M,
 }
 
-impl<'a, M: RowMapper> Drop for Rows<'a, M> {
-    fn drop(&mut self) {
-        self.stmt.reset();
-    }
-}
+
 
 //TODO wht if rowmapper goes out of scope? wht owuld u do with the sqlite3_stmt
 impl<'a, M: RowMapper> Iterator for Rows<'a, M> {

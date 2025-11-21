@@ -29,7 +29,14 @@ pub struct Statement<'a> {
     pub(crate) key: Option<String>,
 }
 
+impl Drop for Statement<'_> {
+    fn drop(&mut self) {
+        self.reset();
+    }
+}
+
 impl Statement<'_> {
+    /// this fn is indempotent
     pub fn reset(&mut self) {
         // If cache exists
         if let Some(ref key) = self.key {
@@ -49,7 +56,7 @@ impl Statement<'_> {
                 sqlite3_finalize(self.stmt);
             }
             // Finalizing null statements is safe no-op according to the docs.
-            // assign it as null to prevent double free of the uncached stmts
+            // assign it as null to prevent double free of uncached stmts
             self.stmt = ptr::null_mut();
         }
     }
