@@ -13,7 +13,6 @@ pub struct Rows<'a, M: RowMapper> {
 
 
 
-//TODO wht if rowmapper goes out of scope? wht owuld u do with the sqlite3_stmt
 impl<'a, M: RowMapper> Iterator for Rows<'a, M> {
     // The Output refers to the original struct predefined by user (TODO, better explanation)
     type Item = Result<M::Output, RowMapperError>;
