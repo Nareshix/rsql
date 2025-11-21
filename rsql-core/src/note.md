@@ -45,3 +45,5 @@ tuple expresison and bind parameter compile time doesnt check
 
 consider prepare_v3 with SQLITE_PREPARE_DONT_LOG and SQLITE_PREPARE_PERSISTENT flag
 consider using a vector instead of hashmap. realistically an app usulaly wouldnt have that many cached statements in the first place
+
+consider SQLITE_STATIC instead of  SQLITE_TRANSIENT in ToSql
