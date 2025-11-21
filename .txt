@@ -34,3 +34,63 @@ fn main(){
 
 
 
+
+pub struct UserDao {
+    get_by_id_stmt: *mut sqlite3_stmt,
+    insert_stmt:    *mut sqlite3_stmt,
+}
+
+impl UserDao {
+    pub fn new(db: *mut sqlite3) -> Self {
+        let mut get_stmt: *mut sqlite3_stmt = ptr::null_mut();
+        let mut insert_stmt: *mut sqlite3_stmt = ptr::null_mut();
+
+        let sql_get = CString::new("SELECT * FROM users WHERE id = ?").unwrap();
+        let sql_ins = CString::new("INSERT INTO users...").unwrap();
+
+        // no cache btw
+        unsafe {
+            // Prepare the statements once and store the pointers
+            sqlite3_prepare_v2(db, sql_get.as_ptr(), -1, &mut get_stmt, ptr::null_mut());
+            sqlite3_prepare_v2(db, sql_ins.as_ptr(), -1, &mut insert_stmt, ptr::null_mut());
+        }
+
+        // Return the struct with the pre-compiled pointers
+        UserDao {
+            get_by_id_stmt: get_stmt,
+            insert_stmt: insert_stmt,
+        }
+    }
+
+    // 3. Usage
+    // logic: NO HASHING. NO LOOKUP. Direct pointer usage.
+    pub fn get_user(&self, id: i32) {
+        // We already have the pointer!
+        let stmt = self.get_by_id_stmt;
+
+        unsafe {
+            // 1. Reset the statement to allow reuse (essential for pre-prepared stmts)
+            sqlite3_reset(stmt);
+
+            // 2. Bind the ID to the first parameter (index 1)
+            sqlite3_bind_int(stmt, 1, id);
+
+            // 3. Execute (Step)
+            while sqlite3_step(stmt) == libsqlite3_sys::SQLITE_ROW {
+                // Read columns here...
+                // let val = sqlite3_column_text(stmt, 0);
+            }
+        }
+    }
+}
+
+// Cleanup (Destructor)
+// Rust automatically calls this when UserDao goes out of scope
+impl Drop for UserDao {
+    fn drop(&mut self) {
+        unsafe {
+            libsqlite3_sys::sqlite3_finalize(self.get_by_id_stmt);
+            libsqlite3_sys::sqlite3_finalize(self.insert_stmt);
+        }
+    }
+}
