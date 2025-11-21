@@ -10,7 +10,7 @@ pub struct Rows<'a, M: RowMapper> {
     pub stmt: &'a Statement<'a>,
     pub mapper: M,
 }
-
+//TODO wht if rowmapper goes out of scope? wht owuld u do with the sqlite3_stmt
 impl<'a, M: RowMapper> Iterator for Rows<'a, M> {
     // The Output refers to the original struct predefined by user (TODO, better explanation)
     type Item = Result<M::Output, RowMapperError>;
@@ -25,6 +25,7 @@ impl<'a, M: RowMapper> Iterator for Rows<'a, M> {
         } else if result_code == SQLITE_BUSY {
             Some(Err(RowMapperError::SqliteBusy))
         } else if result_code == SQLITE_DONE {
+            self.stmt.reset();
             None
         } else {
             let (code, error_msg) = unsafe { get_sqlite_failiure(self.stmt.conn.db) };

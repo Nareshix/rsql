@@ -14,16 +14,22 @@ use crate::{
 use crate::internal_sqlite::connection::Connection;
 
 #[allow(dead_code)]
-// #[derive(Debug)]
+/// Statement holds the sqlite3_stmt (compiled binary) and the sql statement(SELECT etc.) as key
+/// logically, a sqlite3_stmt is not in used when  either of the 2 occurs
+/// 1. SQLITE_DONE occurs after executing a write statement (INSERT, UPDATE etc.) or all rows (SQLITE_ROWS) returned from SELECT operation have been iterated completely
+/// 2. <Statement> drops. Usually, when iterating through the SQLITE_ROWS, one wouldnt necessarily have to iterate thorugh the end. they would iterate up to a certain point.
 pub struct Statement<'a> {
     pub(crate) conn: &'a Connection,
     pub(crate) stmt: *mut sqlite3_stmt,
+     // store the sql statement (as key) to search for the sqlite3_stmt in O(1) operation 
+     // in the hashmap. This is None if cache exist and is being in used so we have to manually destroy
+     // this statement since it wasnt stored in the hashmap to begin with.
     pub(crate) key: Option<String>,
 }
 
 impl Statement<'_> {
-    fn reset(&self) {
-        // If key exists, the stmt exists in the cache
+    pub fn reset(&self) {
+        // If cache exists
         if let Some(ref key) = self.key {
             let mut cache = self.conn.cache.borrow_mut();
 

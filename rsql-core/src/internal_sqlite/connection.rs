@@ -15,7 +15,7 @@ use crate::{
     utility::utils::{close_db, get_sqlite_failiure},
 };
 
-// defaults to true cuz we would want to immediately use it after preparation
+// defaults to true cuz we would want to immediately use it after preparation (defaulting to true happens in fn prepare)
 // only becomes false when SQLITE_DONE or (<Statement> or <Rows>)  gets dropped
 pub(crate) struct RawStatement {
     pub(crate) stmt: *mut sqlite3_stmt,
@@ -121,7 +121,13 @@ impl Connection {
             return Err(SqlitePrepareErrors::SqliteFailure { code, error_msg });
         }
 
-        // cache exists but is being used. Do not cache it
+        // cache exists but is being used. Do not cache it.
+        // usually happens if user decides to do exact same sql query while looping through
+        // iterator obtained from <Statement>.query(). This is a N+1 problem and shouldnt really be done.
+        // However, if user does decide to ever do it we need to handle it cuz this can cause UB.
+        // and worse still, rust compiler would not warn the user due to it being handled at runtime.
+        // another common reason this happens is if <Statement> object has not been dropped by the user but logically,
+        // in the flow of the program, Statement is "completed". TODO better explanation
         if cache.contains_key(sql) {
             Ok(Statement { conn: self, stmt, key:None })
         }
