@@ -1,3 +1,4 @@
+// TODO dont use to_string, just use &str when creating Statemnet. but low prio
 use libsqlite3_sys::{
     self as ffi, SQLITE_OK, SQLITE_OPEN_CREATE, SQLITE_OPEN_MEMORY, SQLITE_OPEN_READWRITE, sqlite3,
     sqlite3_busy_timeout, sqlite3_finalize, sqlite3_stmt,
