@@ -42,3 +42,5 @@ query! macro might work as expected due to rust's lifetime. its quite a difficul
 offer an option that acutally allows teh desired syntax (let result = query!()) but do inform them that it is inefficent as it colelcts them into a vec ro other data types
 
 tuple expresison and bind parameter compile time doesnt check
+
+consider using a vector instead of hashmap. realistically an app usulaly wouldnt have that many cached statements in the first place

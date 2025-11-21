@@ -1,13 +1,36 @@
-when hit wih api,
+fn return_iterator_withhout_lifetime_pollution(){
+    conn.prepare("").binding().query();
+}
 
-1. checks cache
-2. if dont exist, prepares staement and cache it
-3. run write or read operaion (loop the cursor), in other words, step()
-4. after ur done reset the staement. don finalise the statement
+fn take_iterator(){ //note can be either move or borrow the iterator
+    do whatver
+}
 
 
-looping (bulk insert large data in batches. never loop select statements, they can awlays be done in sql query and u loop the cursor)
-1. checks cache
-2. if dont exist, prepares staement and cache it
-3. run the loop  and in each loop reset the statement
-4. dont finalise the statemnet
+fn main(){
+    let conn = Connection::open("")
+
+    conn.prepare("").binding().step();
+    
+    let result = conn.prepare("").binding().query();
+    for i in result {
+        do whatever
+    }
+
+    let result = conn.prepare("").binding().query();
+    take_iterator(result)
+
+
+    let result = conn.prepare("").binding().query();
+    take_iterator(&result)
+   
+
+
+    execute!(conn, sql, binding)
+
+    let result = query!(conn, mapping, sql, binding);
+
+}
+
+
+
