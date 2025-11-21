@@ -94,7 +94,11 @@ impl Connection {
         {
             let stmt = raw_stmt.stmt;
             raw_stmt.in_use = true;
-            return Ok(Statement { conn: self, stmt, key: Some(sql.to_string())});
+            return Ok(Statement {
+                conn: self,
+                stmt,
+                key: Some(sql.to_string()),
+            });
         }
 
         let c_sql_query = CString::new(sql).map_err(|_| SqlitePrepareErrors::EmbeddedNullInSql)?;
@@ -129,12 +133,20 @@ impl Connection {
         // another common reason this happens is if <Statement> object has not been dropped by the user but logically,
         // in the flow of the program, Statement is "completed". TODO better explanation
         if cache.contains_key(sql) {
-            Ok(Statement { conn: self, stmt, key:None })
+            Ok(Statement {
+                conn: self,
+                stmt,
+                key: None,
+            })
         }
         // cache do not exist
         else {
             cache.insert(sql.to_string(), RawStatement { stmt, in_use: true });
-            Ok(Statement { conn: self, stmt, key:Some(sql.to_string()) })
+            Ok(Statement {
+                conn: self,
+                stmt,
+                key: Some(sql.to_string()),
+            })
         }
     }
 }
