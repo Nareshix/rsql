@@ -1,80 +1,199 @@
-use rsql::{Connection, LazyStmt, lazy_sql};
-use std::ffi::CString;
-use std::ptr;
-use libsqlite3_sys::sqlite3_exec;
+use std::time::Instant;
+use rsql::{Connection, LazyStmt, SqlMapping, lazy_sql};
+use rusqlite::{params, Connection as RusqliteConnection};
 
-// 1. FIX: Define valid SQL. 
-// Cannot be empty, otherwise stmt pointer is NULL -> Segfault.
+// =============================================================================
+// 1. RSQL SETUP (The Lazy DAO)
+// =============================================================================
+
 #[lazy_sql]
-pub struct UserDao<'a> {
+pub struct ShopDao<'a> {
     db: &'a Connection,
 
-    // Using "INSERT OR REPLACE" so we can run this code multiple times without unique constraint errors
-    #[sql("INSERT OR REPLACE INTO users (id, name) VALUES (?, ?)")]
-    insert_stmt: LazyStmt,
+    // DDL
+    #[sql("CREATE TABLE products (product_id INTEGER PRIMARY KEY, stock INTEGER);")]
+    create_products: LazyStmt,
+    #[sql("CREATE TABLE orders (order_id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER);")]
+    create_orders: LazyStmt,
+    #[sql("CREATE TABLE order_items (item_id INTEGER PRIMARY KEY, order_id INTEGER, product_id INTEGER);")]
+    create_items: LazyStmt,
 
-    #[sql("SELECT * FROM users WHERE id = ?")]
-    get_by_id_stmt: LazyStmt,
+    // Queries
+    #[sql("INSERT INTO products (stock) VALUES (10000);")]
+    init_product: LazyStmt,
+
+    #[sql("INSERT INTO orders (user_id) VALUES (?);")]
+    insert_order: LazyStmt,
+
+    #[sql("INSERT INTO order_items (order_id, product_id) VALUES (?, ?);")]
+    insert_item: LazyStmt,
+
+    #[sql("UPDATE products SET stock = stock - 1 WHERE product_id = ?;")]
+    deduct_stock: LazyStmt,
 }
 
-fn main() {
-    let conn = Connection::open("test.db").unwrap();
+fn bench_rsql(orders_to_process: i32) {
+    let conn = Connection::open_memory().unwrap();
+    let mut dao = ShopDao::new(&conn);
 
-    let create_table_sql = CString::new(
-        "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT)"
-    ).unwrap();
+    // Setup
+    dao.create_products().unwrap().step().unwrap();
+    dao.create_orders().unwrap().step().unwrap();
+    dao.create_items().unwrap().step().unwrap();
     
-    unsafe {
-        let rc = sqlite3_exec(conn.db, create_table_sql.as_ptr(), None, ptr::null_mut(), ptr::null_mut());
-        if rc != 0 {
-            panic!("Failed to create table: {}", rc);
+    // Create 5 products
+    for _ in 0..5 { dao.init_product().unwrap().step().unwrap(); }
+
+    let start = Instant::now();
+
+    for _ in 0..orders_to_process {
+        // 1. Insert Order (User ID 1)
+        // SCOPE 1: Created, executed, and DROPPED here
+        {
+            let mut stmt = dao.insert_order().unwrap();
+            stmt.bind_parameter(1, 1).unwrap();
+            stmt.step().unwrap();
+        } // <--- stmt drops here, calling sqlite3_reset()
+
+        let order_id = 1; 
+
+        // 2. Add Item A (Product 1)
+        // SCOPE 2
+        {
+            let mut stmt = dao.insert_item().unwrap();
+            stmt.bind_parameter(1, order_id).unwrap();
+            stmt.bind_parameter(2, 1).unwrap();
+            stmt.step().unwrap();
+        } // <--- Resets 'insert_item'
+
+        // 3. Deduct Stock A
+        // SCOPE 3
+        {
+            let mut stmt = dao.deduct_stock().unwrap();
+            stmt.bind_parameter(1, 1).unwrap();
+            stmt.step().unwrap();
+        }
+
+        // 4. Add Item B (Product 2)
+        // SCOPE 4: Now safe to reuse 'insert_item' because Scope 2 reset it!
+        {
+            let mut stmt = dao.insert_item().unwrap();
+            stmt.bind_parameter(1, order_id).unwrap();
+            stmt.bind_parameter(2, 2).unwrap();
+            stmt.step().unwrap();
+        }
+
+        // 5. Deduct Stock B
+        // SCOPE 5
+        {
+            let mut stmt = dao.deduct_stock().unwrap();
+            stmt.bind_parameter(1, 2).unwrap();
+            stmt.step().unwrap();
         }
     }
-    println!("2. Table 'users' ensured to exist.");
 
-    // 3. Create DAO
-    let mut dao = UserDao::new(&conn);
-    println!("3. DAO created (Statements are lazy/NULL).");
+    println!("RSQL (Lazy DAO)         : {:.2?}", start.elapsed());
+}
+// =============================================================================
+// 2. RUSQLITE (NO CACHE)
+// =============================================================================
 
-    // --- WRITE Phase (Insert) ---
-    {
-        println!("4. Preparing INSERT statement...");
-        // This calls your macro logic -> prepares stmt -> stores in dao
-        let mut stmt = dao.insert_stmt().expect("Failed to prepare insert");
+fn bench_rusqlite_no_cache(orders_to_process: i32) {
+    let conn = RusqliteConnection::open_in_memory().unwrap();
 
-        // Bind ID (1) and Name ("Mom")
-        // Assuming your ToSql trait handles i32 and &str
-        stmt.bind_parameter(1, 1).expect("Failed to bind ID");
-        stmt.bind_parameter(2, 1.23).expect("Failed to bind Name");
+    conn.execute_batch("
+        CREATE TABLE products (product_id INTEGER PRIMARY KEY, stock INTEGER);
+        CREATE TABLE orders (order_id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER);
+        CREATE TABLE order_items (item_id INTEGER PRIMARY KEY, order_id INTEGER, product_id INTEGER);
+    ").unwrap();
 
-        println!("5. Executing INSERT...");
-        
-        // This calls your PreparredStmt::step() logic
-        match stmt.step() {
-            Ok(_) => println!("   -> Success! User 'Mom' (id: 1) inserted."),
-            Err(e) => println!("   -> Error inserting: {:?}", e), // Debug print if your error supports it
-        }
+    for _ in 0..5 { conn.execute("INSERT INTO products (stock) VALUES (10000)", []).unwrap(); }
 
-    } // stmt goes out of scope here.
-      // Your PreparredStmt::drop runs: calls sqlite3_reset & clear_bindings.
-      // The RAW pointer inside 'dao' stays valid.
+    let start = Instant::now();
 
-    println!("6. Scope ended. Statement reset/cached.");
+    for _ in 0..orders_to_process {
+        // 1. Insert Order
+        // prepare() compiles the SQL string EVERY TIME
+        conn.prepare("INSERT INTO orders (user_id) VALUES (?)").unwrap()
+            .execute(params![1]).unwrap();
 
-    // --- CACHE CHECK ---
-    {
-        println!("7. Requesting INSERT statement again...");
-        // This should NOT call sqlite3_prepare_v2 again (Fast path)
-        let mut stmt_again = dao.insert_stmt().expect("Failed to get cached stmt");
-        
-        stmt_again.bind_parameter(1, 2).unwrap();
-        stmt_again.bind_parameter(2, "Dad").unwrap();
-        
-        stmt_again.step().expect("Failed to insert Dad");
-        println!("   -> Success! User 'Dad' (id: 2) inserted.");
+        let order_id = 1;
+
+        // 2. Add Item A
+        conn.prepare("INSERT INTO order_items (order_id, product_id) VALUES (?, ?)").unwrap()
+            .execute(params![order_id, 1]).unwrap();
+
+        // 3. Deduct Stock A
+        conn.prepare("UPDATE products SET stock = stock - 1 WHERE product_id = ?").unwrap()
+            .execute(params![1]).unwrap();
+
+        // 4. Add Item B
+        conn.prepare("INSERT INTO order_items (order_id, product_id) VALUES (?, ?)").unwrap()
+            .execute(params![order_id, 2]).unwrap();
+
+        // 5. Deduct Stock B
+        conn.prepare("UPDATE products SET stock = stock - 1 WHERE product_id = ?").unwrap()
+            .execute(params![2]).unwrap();
     }
 
-    println!("--- Happy Path Complete. Check 'mom.db' ---");
+    println!("Rusqlite (No Cache)     : {:.2?}", start.elapsed());
+}
 
-} // dao drops -> LazyStmt drops -> sqlite3_finalize (Safe cleanup)
-  // conn drops -> sqlite3_close
+// =============================================================================
+// 3. RUSQLITE (WITH CACHE)
+// =============================================================================
+
+fn bench_rusqlite_cached(orders_to_process: i32) {
+    let conn = RusqliteConnection::open_in_memory().unwrap();
+
+    conn.execute_batch("
+        CREATE TABLE products (product_id INTEGER PRIMARY KEY, stock INTEGER);
+        CREATE TABLE orders (order_id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER);
+        CREATE TABLE order_items (item_id INTEGER PRIMARY KEY, order_id INTEGER, product_id INTEGER);
+    ").unwrap();
+
+    for _ in 0..5 { conn.execute("INSERT INTO products (stock) VALUES (10000)", []).unwrap(); }
+
+    let start = Instant::now();
+
+    for _ in 0..orders_to_process {
+        // 1. Insert Order
+        // prepare_cached() uses HashMap lookup + LRU Cache
+        conn.prepare_cached("INSERT INTO orders (user_id) VALUES (?)").unwrap()
+            .execute(params![1]).unwrap();
+
+        let order_id = 1;
+
+        // 2. Add Item A
+        conn.prepare_cached("INSERT INTO order_items (order_id, product_id) VALUES (?, ?)").unwrap()
+            .execute(params![order_id, 1]).unwrap();
+
+        // 3. Deduct Stock A
+        conn.prepare_cached("UPDATE products SET stock = stock - 1 WHERE product_id = ?").unwrap()
+            .execute(params![1]).unwrap();
+
+        // 4. Add Item B
+        conn.prepare_cached("INSERT INTO order_items (order_id, product_id) VALUES (?, ?)").unwrap()
+            .execute(params![order_id, 2]).unwrap();
+
+        // 5. Deduct Stock B
+        conn.prepare_cached("UPDATE products SET stock = stock - 1 WHERE product_id = ?").unwrap()
+            .execute(params![2]).unwrap();
+    }
+
+    println!("Rusqlite (Cached)       : {:.2?}", start.elapsed());
+}
+
+// =============================================================================
+// RUNNER
+// =============================================================================
+
+fn main() {
+    let orders = 5_000;
+    println!("--- BENCHMARKING REAL WORLD TRANSACTION ({} Orders) ---", orders);
+    println!("Total Queries: {} (5 per order)\n", orders * 5);
+
+    bench_rsql(orders);
+    bench_rusqlite_no_cache(orders);
+    bench_rusqlite_cached(orders);
+}
