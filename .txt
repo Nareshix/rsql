@@ -25,15 +25,11 @@ fn main(){
 
 
 
-let conn = Connection::new();
-execute!(conn, sql, binding)
-let result = query!(conn, mapping, sql, binding);
+//let conn = Connection::new();
 
-
-
-[#lazyinit]
+#[lazyinit("file_name_empty_default_to_memory")]
 pub struct UserDao{
-    db: conn,
+    // db: conn,
 
     #[sql("SELECT * FROM users WHERE id = ?")]
     get_by_id_stmt: LazyStmt,
@@ -45,9 +41,8 @@ pub struct UserDao{
 impl UserDao {
     pub fn get_user(&self, id: i32) {
         // NOTICE: () added. The macro generated this method for you.
-        let stmt = self.get_by_id_stmt(); 
-        let stmt = bind!(stmt, mapping)
-        let result = query!(conn, stmt) // result is an iterator
+        let stmt = self.get_by_id_stmt();  // activates the null sqliee3_stmt
+        let result = query!(conn, mapping, stmt, binding) // result is an iterator
         // or both maybe idk see how :p
     }
 
