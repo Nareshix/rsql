@@ -1,7 +1,6 @@
 // TODO dont use to_string, just use &str when creating Statemnet. but low prio
 use libsqlite3_sys::{
-    self as ffi, SQLITE_OK, SQLITE_OPEN_CREATE, SQLITE_OPEN_MEMORY, SQLITE_OPEN_READWRITE, sqlite3,
-    sqlite3_busy_timeout, sqlite3_finalize, sqlite3_stmt,
+    self as ffi, SQLITE_OK, SQLITE_OPEN_CREATE, SQLITE_OPEN_MEMORY, SQLITE_OPEN_READWRITE, sqlite3, sqlite3_busy_timeout, sqlite3_finalize, sqlite3_stmt
 };
 use std::{
     cell::RefCell,
@@ -73,6 +72,7 @@ impl Connection {
             //TODO sqlite3_busy_timeout does return an int. It is nearly a gurantee for this
             // function to never fail. but its still good to handle it. If it fails mean
             // the sql query is taking more than 5 second which means its inefficent lol            unsafe { sqlite3_busy_timeout(db, 5000) };
+            unsafe { sqlite3_busy_timeout(db, 5000) };
             let cache = RefCell::new(HashMap::new());
             Ok(Connection { db, cache })
         } else {
