@@ -34,14 +34,44 @@ fn main(){
 
 
 
+let conn = Connection::new();
+execute!(conn, sql, binding)
+let result = query!(conn, mapping, sql, binding);
+
+
+
+[#lazyinit]
+pub struct UserDao{
+    db: conn,
+
+    #[sql("SELECT * FROM users WHERE id = ?")]
+    get_by_id_stmt: LazyStmt,
+
+    #[sql("INSERT INTO users (name) VALUES (?)")]
+    insert_stmt: LazyStmt,
+}
+
+impl UserDao {
+    pub fn get_user(&self, id: i32) {
+        // NOTICE: () added. The macro generated this method for you.
+        let stmt = self.get_by_id_stmt(); 
+
+        // execute!()
+        //or
+        // let result = query!() // result is an iterator
+
+    }
+}
+
 
 pub struct UserDao {
+    db: conn,
     get_by_id_stmt: *mut sqlite3_stmt,
     insert_stmt:    *mut sqlite3_stmt,
 }
 
 impl UserDao {
-    pub fn new(db: *mut sqlite3) -> Self {
+    pub fn new() -> Self {
         let mut get_stmt: *mut sqlite3_stmt = ptr::null_mut();
         let mut insert_stmt: *mut sqlite3_stmt = ptr::null_mut();
 
@@ -51,8 +81,8 @@ impl UserDao {
         // no cache btw
         unsafe {
             // Prepare the statements once and store the pointers
-            sqlite3_prepare_v2(db, sql_get.as_ptr(), -1, &mut get_stmt, ptr::null_mut());
-            sqlite3_prepare_v2(db, sql_ins.as_ptr(), -1, &mut insert_stmt, ptr::null_mut());
+            sqlite3_prepare_v2(self.db, sql_get.as_ptr(), -1, &mut get_stmt, ptr::null_mut());
+            sqlite3_prepare_v2(self.db, sql_ins.as_ptr(), -1, &mut insert_stmt, ptr::null_mut());
         }
 
         // Return the struct with the pre-compiled pointers
@@ -88,9 +118,7 @@ impl UserDao {
 // Rust automatically calls this when UserDao goes out of scope
 impl Drop for UserDao {
     fn drop(&mut self) {
-        unsafe {
-            libsqlite3_sys::sqlite3_finalize(self.get_by_id_stmt);
-            libsqlite3_sys::sqlite3_finalize(self.insert_stmt);
-        }
+        // drop all the stmt
+        // close_db()
     }
 }
