@@ -1,12 +1,3 @@
-fn return_iterator_withhout_lifetime_pollution(){
-    conn.prepare("").binding().query();
-}
-
-fn take_iterator(){ //note can be either move or borrow the iterator
-    do whatver
-}
-
-
 fn main(){
     let conn = Connection::open("")
 
@@ -55,19 +46,21 @@ impl UserDao {
     pub fn get_user(&self, id: i32) {
         // NOTICE: () added. The macro generated this method for you.
         let stmt = self.get_by_id_stmt(); 
+        let stmt = bind!(stmt, mapping)
+        let result = query!(conn, stmt) // result is an iterator
+        // or both maybe idk see how :p
+    }
 
-        // execute!()
-        //or
-        // let result = query!() // result is an iterator
-
+    pub fn insert_user(&self, id:i32){
+        execute!()
     }
 }
 
 
 pub struct UserDao {
     db: conn,
-    get_by_id_stmt: *mut sqlite3_stmt,
-    insert_stmt:    *mut sqlite3_stmt,
+    get_by_id_stmt: Cell<*mut sqlite3_stmt,>
+    insert_stmt:    *mut sqlite3_stmt, 
 }
 
 impl UserDao {
