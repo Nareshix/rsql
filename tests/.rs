@@ -3,7 +3,7 @@
 extern crate std;
 #[prelude_import]
 use std::prelude::rust_2024::*;
-use rsql::{Connection, LazyStmt, lazy_sql, utility::utils::prepare_stmt};
+use rsql::{Connection, LazyStmt, lazy_sql};
 pub struct UserDao<'a> {
     db: &'a Connection,
     get_by_id_stmt: LazyStmt,
@@ -25,38 +25,47 @@ impl<'a> UserDao<'a> {
     }
     pub fn get_by_id_stmt(
         &mut self,
-    ) -> Result<&mut LazyStmt, rsql::errors::connection::SqlitePrepareErrors> {
+    ) -> Result<
+        rsql::internal_sqlite::preparred_statement::PreparredStmt,
+        rsql::errors::connection::SqlitePrepareErrors,
+    > {
         if self.get_by_id_stmt.stmt.is_null() {
             unsafe {
-                prepare_stmt(
+                rsql::utility::utils::prepare_stmt(
                     self.db.db,
                     &mut self.get_by_id_stmt.stmt,
                     self.get_by_id_stmt.sql_query,
                 )?;
             }
         }
-        Ok(&mut self.get_by_id_stmt)
+        Ok(rsql::internal_sqlite::preparred_statement::PreparredStmt {
+            stmt: self.get_by_id_stmt.stmt,
+            conn: self.db.db,
+        })
     }
     pub fn insert_stmt(
         &mut self,
-    ) -> Result<&mut LazyStmt, rsql::errors::connection::SqlitePrepareErrors> {
+    ) -> Result<
+        rsql::internal_sqlite::preparred_statement::PreparredStmt,
+        rsql::errors::connection::SqlitePrepareErrors,
+    > {
         if self.insert_stmt.stmt.is_null() {
             unsafe {
-                prepare_stmt(
+                rsql::utility::utils::prepare_stmt(
                     self.db.db,
                     &mut self.insert_stmt.stmt,
                     self.insert_stmt.sql_query,
                 )?;
             }
         }
-        Ok(&mut self.insert_stmt)
+        Ok(rsql::internal_sqlite::preparred_statement::PreparredStmt {
+            stmt: self.insert_stmt.stmt,
+            conn: self.db.db,
+        })
     }
 }
 fn main() {
     let conn = Connection::open_memory().unwrap();
     let mut dao = UserDao::new(&conn);
     let stmt = dao.get_by_id_stmt();
-    {
-        ::std::io::_print(format_args!("Dao created!\n"));
-    };
 }
