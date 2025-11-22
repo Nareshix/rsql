@@ -13,7 +13,7 @@ use std::{
 use crate::{
     errors::connection::{SqliteOpenErrors, SqlitePrepareErrors},
     internal_sqlite::statement::Statement,
-    utility::utils::{close_db, get_sqlite_failiure},
+    utility::utils::{close_db, get_sqlite_failiure, prepare_stmt},
 };
 
 // defaults to true cuz we would want to immediately use it after preparation (defaulting to true happens in fn prepare)
@@ -31,7 +31,7 @@ impl Drop for RawStatement {
     }
 }
 pub struct Connection {
-    pub(crate) db: *mut sqlite3,
+    pub db: *mut sqlite3,
     pub(crate) cache: RefCell<HashMap<String, RawStatement>>, //TODO just a random thoguhut, maybe use smart pointer to make it faster instead of converting all &str to String
 }
 
@@ -102,29 +102,8 @@ impl Connection {
             });
         }
 
-        let c_sql_query = CString::new(sql).map_err(|_| SqlitePrepareErrors::EmbeddedNullInSql)?;
         let mut stmt = ptr::null_mut();
-        let code = unsafe {
-            ffi::sqlite3_prepare_v2(
-                self.db,
-                c_sql_query.as_ptr(),
-                -1,
-                &mut stmt,
-                ptr::null_mut(),
-            )
-        };
-
-        // TODO
-        // *ppStmt is left pointing to a compiled prepared statement that can be executed
-        //  using sqlite3_step(). If there is an error, *ppStmt is set to NULL.
-        // If the input text contains no SQL (if the input is an empty string or a comment)
-        //  then *ppStmt is set to NULL. The calling procedure is responsible for deleting
-        // the compiled SQL statement using sqlite3_finalize() after it has finished with it.
-        // ppStmt may not be NULL.
-        if code != SQLITE_OK {
-            let (code, error_msg) = unsafe { get_sqlite_failiure(self.db) };
-            return Err(SqlitePrepareErrors::SqliteFailure { code, error_msg });
-        }
+        unsafe { prepare_stmt(self.db, &mut stmt, sql)? };
 
         // cache exists but is being used. Do not cache it.
         // usually happens if user decides to do exact same sql query while looping through
