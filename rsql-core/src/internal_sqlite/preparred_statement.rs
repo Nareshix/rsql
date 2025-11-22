@@ -10,9 +10,9 @@ use crate::{
     utility::utils::get_sqlite_failiure,
 };
 
-struct PreparredStmt {
-    stmt: *mut sqlite3_stmt,
-    conn: *mut sqlite3,
+pub struct PreparredStmt {
+    pub stmt: *mut sqlite3_stmt,
+    pub conn: *mut sqlite3,
 }
 
 impl Drop for PreparredStmt {

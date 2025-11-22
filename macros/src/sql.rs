@@ -39,7 +39,7 @@ impl ToTokens for AutoStmt {
 
         for field in fields.named.iter_mut() {
             let ident = &field.ident;
-            let ty = &field.ty; // This is likely 'LazyStmt'
+            let ty = &field.ty; // This is 'LazyStmt'
 
             let mut sql_lit: Option<LitStr> = None;
             let mut parse_error = None;
@@ -71,23 +71,31 @@ impl ToTokens for AutoStmt {
                     }
                 });
 
-                // 2. Generated Method with your specific logic
+                // 2. Generated Method returning PreparredStmt
+                // CHANGE IS HERE
                 generated_methods.push(quote! {
-                    pub fn #ident(&mut self) -> Result<&mut #ty, rsql::errors::connection::SqlitePrepareErrors> {
+                    pub fn #ident(&mut self) -> Result<rsql::internal_sqlite::preparred_statement::PreparredStmt, rsql::errors::connection::SqlitePrepareErrors> {
+                        // 1. Prepare if not yet prepared
                         if self.#ident.stmt.is_null() {
                             unsafe { 
-                                prepare_stmt(
+                                rsql::utility::utils::prepare_stmt(
                                     self.db.db, 
                                     &mut self.#ident.stmt, 
                                     self.#ident.sql_query
                                 )?; 
                             }
                         }
-                        Ok(&mut self.#ident)
+
+                        // 2. Construct the wrapper and return it
+                        // We assume 'PreparredStmt' is in scope where the macro is used.
+                        Ok(rsql::internal_sqlite::preparred_statement::PreparredStmt {
+                            stmt: self.#ident.stmt, // The raw statement pointer from LazyStmt
+                            conn: self.db.db,       // The raw connection pointer
+                        })
                     }
                 });
             } else {
-                // Standard fields
+                // Standard fields (like 'db')
                 new_params.push(quote! { #ident: #ty });
                 new_assignments.push(quote! { #ident });
             }
