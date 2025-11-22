@@ -32,7 +32,7 @@ impl Drop for RawStatement {
 }
 pub struct Connection {
     pub db: *mut sqlite3,
-    pub(crate) cache: RefCell<HashMap<String, RawStatement>>, //TODO just a random thoguhut, maybe use smart pointer to make it faster instead of converting all &str to String
+    pub(crate) cache: RefCell<HashMap<String, RawStatement>>,
 }
 
 impl Drop for Connection {
@@ -60,10 +60,7 @@ impl Connection {
     fn open_with_flags(filename: &str, flag: c_int) -> Result<Self, SqliteOpenErrors> {
         let mut db = ptr::null_mut();
 
-        let c_filename =
-            CString::new(filename).map_err(|_| SqliteOpenErrors::EmbeddedNullInFileName {
-                filename: filename.to_owned(),
-            })?;
+        let c_filename = CString::new(filename).unwrap(); //TODO
 
         let code = unsafe { ffi::sqlite3_open_v2(c_filename.as_ptr(), &mut db, flag, ptr::null()) };
 
