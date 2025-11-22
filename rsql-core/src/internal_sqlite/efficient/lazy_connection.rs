@@ -11,11 +11,11 @@ use std::{
 use crate::errors::connection::SqliteOpenErrors;
 use crate::utility::utils::{close_db, get_sqlite_failiure};
 
-pub struct Connection {
+pub struct LazyConnection {
     pub db: *mut sqlite3,
 }
 
-impl Drop for Connection {
+impl Drop for LazyConnection {
     fn drop(&mut self) {
         unsafe {
             close_db(self.db);
@@ -23,16 +23,16 @@ impl Drop for Connection {
     }
 }
 
-impl Connection {
+impl LazyConnection {
     pub fn open(filename: &str) -> Result<Self, SqliteOpenErrors> {
         let flag = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
 
-        Connection::open_with_flags(filename, flag)
+        LazyConnection::open_with_flags(filename, flag)
     }
 
     pub fn open_memory() -> Result<Self, SqliteOpenErrors> {
         let flag = SQLITE_OPEN_MEMORY | SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
-        Connection::open_with_flags(":memory:", flag)
+        LazyConnection::open_with_flags(":memory:", flag)
     }
 
     // The flags refer to what mode to open the db in (readwrite, memory, etc)

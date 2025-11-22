@@ -1,6 +1,5 @@
 // // src/db_checker.rs
 // use rusqlite::Connection;
-// use std::env;
 
 // pub fn validate_sql_against_db(query: &str) -> Result<(), String> {
 //     // 1. Get path from Env Var (Best practice for macros)
