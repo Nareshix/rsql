@@ -1,4 +1,4 @@
-use libsqlite3_sys::sqlite3_stmt;
+use libsqlite3_sys::{sqlite3_finalize, sqlite3_stmt};
 
 #[allow(unused)]
 pub struct LazyStmt {
@@ -6,4 +6,13 @@ pub struct LazyStmt {
     pub stmt: *mut sqlite3_stmt,
 }
 
-// TODO impl Drop
+impl Drop for LazyStmt {
+    fn drop(&mut self) {
+        // If the statement was initialized, we must finalize it to prevent memory leaks.
+        if !self.stmt.is_null() {
+            unsafe {
+                sqlite3_finalize(self.stmt);
+            }
+        }
+    }
+}
