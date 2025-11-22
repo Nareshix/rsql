@@ -27,7 +27,7 @@ fn main(){
 
 //let conn = Connection::new();
 
-#[lazyinit("file_name_empty_default_to_memory")]
+#[lazyinit]
 pub struct UserDao{
     // db: conn,
 
@@ -38,10 +38,10 @@ pub struct UserDao{
     insert_stmt: LazyStmt,
 }
 
-impl UserDao {
-    pub fn get_user(&self, id: i32) {
-        // NOTICE: () added. The macro generated this method for you.
-        let stmt = self.get_by_id_stmt();  // activates the null sqliee3_stmt
+    impl UserDao {
+        pub fn get_user(&self, id: i32) {
+            // NOTICE: () added. The macro generated this method for you.
+            let stmt = self.get_by_id_stmt();  // activates the null sqliee3_stmt
         let result = query!(conn, mapping, stmt, binding) // result is an iterator
         // or both maybe idk see how :p
     }
@@ -107,6 +107,7 @@ impl UserDao {
 impl Drop for UserDao {
     fn drop(&mut self) {
         // drop all the stmt
-        // close_db()
     }
 }
+
+only drop the db when conn goes out of scope
