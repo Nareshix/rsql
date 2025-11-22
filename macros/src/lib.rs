@@ -1,4 +1,4 @@
-mod compile_time_check;
+mod utility;
 mod execute;
 mod query;
 mod sql;
@@ -7,7 +7,7 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Fields, Ident, parse_macro_input};
 
-use crate::{compile_time_check::Check, execute::Execute, query::Query, sql::AutoStmt};
+use crate::{ execute::Execute, query::Query, sql::AutoStmt};
 
 #[proc_macro]
 pub fn execute(input: TokenStream) -> TokenStream {
@@ -21,11 +21,11 @@ pub fn query(input: TokenStream) -> TokenStream {
     quote! { #parsed_input }.into()
 }
 
-#[proc_macro]
-pub fn check(input: TokenStream) -> TokenStream {
-    let parsed_input = parse_macro_input!(input as Check);
-    quote! { #parsed_input }.into()
-}
+// #[proc_macro]
+// pub fn check(input: TokenStream) -> TokenStream {
+//     let parsed_input = parse_macro_input!(input as Check);
+//     quote! { #parsed_input }.into()
+// }
 
 #[proc_macro_attribute]
 pub fn lazy_sql(_args: TokenStream, input: TokenStream) -> TokenStream {
