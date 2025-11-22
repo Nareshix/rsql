@@ -5,9 +5,7 @@ use libsqlite3_sys::{
 };
 
 use crate::{
-    errors::{SqliteFailure, statement::StatementStepErrors},
-    traits::to_sql::ToSql,
-    utility::utils::get_sqlite_failiure,
+    errors::{SqliteFailure, statement::StatementStepErrors}, internal_sqlite::rows_dao::Rows, traits::{row_mapper::RowMapper, to_sql::ToSql}, utility::utils::get_sqlite_failiure
 };
 
 pub struct PreparredStmt {
@@ -61,7 +59,7 @@ impl PreparredStmt {
         }
     }
 
-    // pub fn query<M: RowMapper>(self, mapper: M) -> Rows<'a, M> {
-    //     Rows { stmt: self, mapper }
-    // }
+    pub fn query<M: RowMapper>(self, mapper: M) -> Rows<M> {
+        Rows { stmt: self, mapper }
+    }
 }
