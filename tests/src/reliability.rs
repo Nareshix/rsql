@@ -1,6 +1,7 @@
 use std::time::Instant;
 
 use rsql::SqlMapping;
+use rsql::internal_sqlite::ergonomic::connection::Connection;
 
 #[derive(Debug, rsql::SqlMapping)]
 #[allow(unused)]
@@ -16,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let now = Instant::now();
 
     // rsql
-    let conn = rsql::Connection::open_memory().unwrap();
+    let conn = Connection::open_memory().unwrap();
 
     conn.prepare(
         "CREATE TABLE users (

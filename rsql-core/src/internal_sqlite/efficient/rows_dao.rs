@@ -1,10 +1,8 @@
 use libsqlite3_sys::{SQLITE_BUSY, SQLITE_DONE, SQLITE_ROW, sqlite3_step};
 
 use crate::{
-    errors::row::RowMapperError,
-    internal_sqlite::preparred_statement::PreparredStmt,
-    traits::row_mapper::RowMapper,
-    utility::utils::get_sqlite_failiure,
+    errors::row::RowMapperError, internal_sqlite::efficient::preparred_statement::PreparredStmt,
+    traits::row_mapper::RowMapper, utility::utils::get_sqlite_failiure,
 };
 
 #[allow(dead_code)]

@@ -85,7 +85,7 @@ impl ToTokens for AutoStmt {
 
                 // 2. Generated Method
                 generated_methods.push(quote! {
-                    pub fn #ident(&mut self) -> Result<rsql::internal_sqlite::preparred_statement::PreparredStmt, rsql::errors::connection::SqlitePrepareErrors> {
+                    pub fn #ident(&mut self) -> Result<rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt, rsql::errors::connection::SqlitePrepareErrors> {
                         
                         if self.#ident.stmt.is_null() {
                             unsafe { 
@@ -98,7 +98,7 @@ impl ToTokens for AutoStmt {
                             }
                         }
 
-                        Ok(rsql::internal_sqlite::preparred_statement::PreparredStmt {
+                        Ok(rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt {
                             stmt: self.#ident.stmt,
                             conn: self.#db_field_ident.db, // Was: self.db.db
                         })

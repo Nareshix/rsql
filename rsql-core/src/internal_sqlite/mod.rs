@@ -1,10 +1,5 @@
-pub mod connection;
-pub mod statement;
-pub mod row;
-pub mod lazy_statement;
-pub mod preparred_statement;
-pub mod lazy_connection;
-pub mod rows_dao;
+pub mod efficient;
+pub mod ergonomic;
 
 #[cfg(test)]
 mod connection_test;
