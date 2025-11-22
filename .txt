@@ -25,89 +25,45 @@ fn main(){
 
 
 
-//let conn = Connection::new();
+
 
 #[lazyinit]
-pub struct UserDao{
+pub struct User{
     // db: conn,
 
-    #[sql("SELECT * FROM users WHERE id = ?")]
-    get_by_id_stmt: LazyStmt,
+    #[sql("SELECT * FROM users WHERE id = ?"), (bind)]
+    create_users: LazyStmt,
 
-    #[sql("INSERT INTO users (name) VALUES (?)")]
-    insert_stmt: LazyStmt,
+    #[sql(mapping, "INSERT INTO users (name) VALUES (?)"), (bind)]
+    get_user: LazyStmt,
 }
 
-    impl UserDao {
-        pub fn get_user(&self, id: i32) {
-            // NOTICE: () added. The macro generated this method for you.
-            let stmt = self.get_by_id_stmt();  // activates the null sqliee3_stmt
-        let result = query!(conn, mapping, stmt, binding) // result is an iterator
-        // or both maybe idk see how :p
-    }
+let conn = Connection::open_memory()
+let mut user = User::new(&conn);
 
-    pub fn insert_user(&self, id:i32){
-        execute!()
-    }
-}
+user.create_users()
+let result = user.get_user()
 
 
-pub struct UserDao {
-    db: conn,
-    get_by_id_stmt: Cell<*mut sqlite3_stmt,>
-    insert_stmt:    *mut sqlite3_stmt, 
-}
-
-impl UserDao {
-    pub fn new() -> Self {
-        let mut get_stmt: *mut sqlite3_stmt = ptr::null_mut();
-        let mut insert_stmt: *mut sqlite3_stmt = ptr::null_mut();
-
-        let sql_get = CString::new("SELECT * FROM users WHERE id = ?").unwrap();
-        let sql_ins = CString::new("INSERT INTO users...").unwrap();
-
-        // no cache btw
-        unsafe {
-            // Prepare the statements once and store the pointers
-            sqlite3_prepare_v2(self.db, sql_get.as_ptr(), -1, &mut get_stmt, ptr::null_mut());
-            sqlite3_prepare_v2(self.db, sql_ins.as_ptr(), -1, &mut insert_stmt, ptr::null_mut());
-        }
-
-        // Return the struct with the pre-compiled pointers
-        UserDao {
-            get_by_id_stmt: get_stmt,
-            insert_stmt: insert_stmt,
-        }
-    }
-
-    // 3. Usage
-    // logic: NO HASHING. NO LOOKUP. Direct pointer usage.
-    pub fn get_user(&self, id: i32) {
-        // We already have the pointer!
-        let stmt = self.get_by_id_stmt;
-
-        unsafe {
-            // 1. Reset the statement to allow reuse (essential for pre-prepared stmts)
-            sqlite3_reset(stmt);
-
-            // 2. Bind the ID to the first parameter (index 1)
-            sqlite3_bind_int(stmt, 1, id);
-
-            // 3. Execute (Step)
-            while sqlite3_step(stmt) == libsqlite3_sys::SQLITE_ROW {
-                // Read columns here...
-                // let val = sqlite3_column_text(stmt, 0);
-            }
-        }
-    }
-}
-
-// Cleanup (Destructor)
-// Rust automatically calls this when UserDao goes out of scope
-impl Drop for UserDao {
-    fn drop(&mut self) {
-        // drop all the stmt
-    }
-}
 
 only drop the db when conn goes out of scope
+
+
+
+
+
+
+
+{
+        let stmt = dao.q_item_count()?;
+        stmt.bind_parameter(1, 0)?; 
+        for row in stmt.query(OrdersItemCount) {
+            println!(" mom {:?}", row?);
+        }
+    } // stmt drops -> resets & clears bindings
+
+    or manually drop stmt
+
+let result = query!(mapping, dao.q_item_count(), (binding_paramers))
+
+let result = query!(conn, mapping, sql, binding);
