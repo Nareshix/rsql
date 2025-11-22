@@ -12,9 +12,10 @@ pub enum SqliteOpenErrors {
     #[error("SQLite error {code}: {error_msg}")]
     SqliteFailure { code: c_int, error_msg: String },
 
-    /// Make sure that there is no Null byte in the file
-    #[error("{filename} contains a null byte. Make sure that there is no Null byte in the file")]
-    EmbeddedNullInFileName { filename: String },
+    // TODO, handle it during compile time
+    // Make sure that there is no Null byte in the file
+    // #[error("{filename} contains a null byte. Make sure that there is no Null byte in the file")]
+    // EmbeddedNullInFileName { filename: String },
 }
 
 #[derive(thiserror::Error, Debug)]
