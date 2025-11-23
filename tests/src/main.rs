@@ -3,25 +3,6 @@ use rsql::{
     internal_sqlite::efficient::{lazy_connection::LazyConnection, lazy_statement::LazyStmt},
     lazy_sql,
 };
-use std::time::Instant; // Adjust imports based on your lib.rs exports
-
-// -----------------------------------------------------------------------------
-// 1. Result Structs (Same as original)
-// -----------------------------------------------------------------------------
-
-#[derive(Debug, SqlMapping)]
-struct Test1 {
-    order_id: i32,
-    username: String,
-    sum: f64,
-    status: String,
-}
-
-#[derive(Debug, SqlMapping)]
-struct LowStock {
-    name: String,
-    stock: i32,
-}
 
 #[derive(Debug, SqlMapping)]
 struct OrdersItemCount {
@@ -29,19 +10,8 @@ struct OrdersItemCount {
     pub num_items: i32,
 }
 
-#[derive(Debug, SqlMapping)]
-struct ProductFilter {
-    product_id: i32,
-    name: String,
-    price: f64,
-    stock: i32,
-    category_id: i32,
-}
-
 #[lazy_sql]
-pub struct ShopDao<'a> {
-    db: &'a LazyConnection,
-
+pub struct ShopDao {
     // 1. Complex Join
     #[sql(
         "SELECT 
@@ -103,19 +73,18 @@ pub struct ShopDao<'a> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let now = Instant::now();
-    let conn = LazyConnection::open("oi.db").expect("Failed to open memory db");
+    let conn = LazyConnection::open("oi.db").unwrap();
 
     let mut dao = ShopDao::new(&conn);
 
     // dao.create_addresses()?.step()?;
 
-    let  x= {
+    let x = {
         let stmt = dao.q_item_count()?;
         stmt.bind_parameter(1, 0)?;
-        stmt.query(OrdersItemCount) 
+        stmt.query(OrdersItemCount)
     };
-    for i in x{
+    for i in x {
         println!("{:?}", i?);
     }
     {
