@@ -1,12 +1,12 @@
 mod execute;
 mod query;
-mod compile_time_check;
+mod utils;
 
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Fields, GenericParam, Ident, ItemStruct, Lifetime, LifetimeParam, LitStr, Type, parse_macro_input, parse_quote, spanned::Spanned};
 
-use crate::{ execute::Execute, query::Query};
+use crate::{ execute::Execute, query::Query, utils::format_sql};
 
 #[proc_macro]
 pub fn execute(input: TokenStream) -> TokenStream {
@@ -54,7 +54,9 @@ fn expand(item_struct: &mut ItemStruct) -> syn::Result<proc_macro2::TokenStream>
 
         // Check if type is sql!("...")
         if let Some(sql_lit) = parse_sql_macro_type(&field.ty)? {
-            let sql_query = sql_lit.value();
+        
+            let sql_query = format_sql(&sql_lit.value());
+
             let doc_comment = format!(" **SQL**\n```sql\n{}", sql_query);
             
             // --- IS SQL FIELD ---
