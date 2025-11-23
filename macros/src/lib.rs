@@ -1,11 +1,11 @@
 mod execute;
 mod query;
-
+mod compile_time_check;
 
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::quote;
-use syn::{Data, DeriveInput, Fields, GenericParam, Ident, ItemStruct, Lifetime, LifetimeParam, LitStr, Type, parse_macro_input, parse_quote};
+use syn::{Data, DeriveInput, Fields, GenericParam, Ident, ItemStruct, Lifetime, LifetimeParam, LitStr, Type, parse_macro_input, parse_quote, spanned::Spanned};
 
 use crate::{ execute::Execute, query::Query};
 
@@ -26,113 +26,121 @@ pub fn query(input: TokenStream) -> TokenStream {
 pub fn lazy_sql(_args: TokenStream, input: TokenStream) -> TokenStream {
     let mut item_struct = parse_macro_input!(input as ItemStruct);
 
-    // 1. INJECT LIFETIME <'a>
-    let lifetime_name = Lifetime::new("'a", Span::call_site());
-    let lifetime_param = GenericParam::Lifetime(LifetimeParam::new(lifetime_name.clone()));
-    item_struct.generics.params.insert(0, lifetime_param);
-
-    // 2. INJECT __db FIELD
-    if let syn::Fields::Named(ref mut fields) = item_struct.fields {
-        let db_field: syn::Field = parse_quote! {
-            __db: &#lifetime_name rsql::internal_sqlite::efficient::lazy_connection::LazyConnection
-        };
-        fields.named.insert(0, db_field);
-    } else {
-        return quote! { compile_error!("lazy_sql requires named fields"); }.into();
+    match expand(&mut item_struct) {
+        Ok(output) => output.into(),
+        Err(err) => err.to_compile_error().into(),
     }
+}
 
-    let (impl_generics, ty_generics, where_clause) = item_struct.generics.split_for_impl();
+fn expand(item_struct: &mut ItemStruct) -> syn::Result<proc_macro2::TokenStream> {
     let struct_name = &item_struct.ident;
+
+    // 1. Validate it has named fields
+    let fields = match &mut item_struct.fields {
+        syn::Fields::Named(named) => named,
+        _ => return Err(syn::Error::new(
+            item_struct.span(),
+            "lazy_sql requires a struct with named fields",
+        )),
+    };
 
     let mut sql_assignments = Vec::new();
     let mut standard_assignments = Vec::new();
     let mut standard_params = Vec::new();
     let mut generated_methods = Vec::new();
 
-    if let syn::Fields::Named(ref mut fields) = item_struct.fields {
-        // Skip __db
-        for field in fields.named.iter_mut().skip(1) {
-            let ident = field.ident.as_ref().unwrap();
+    // 2. Iterate over existing fields (Before injecting __db)
+    for field in fields.named.iter_mut() {
+        let ident = field.ident.as_ref().unwrap();
+
+        // Check if type is sql!("...")
+        if let Some(sql_lit) = parse_sql_macro_type(&field.ty) {
+            let sql_query = sql_lit.value();
+            let doc_comment = format!(" **SQL**\n```sql\n{}", sql_query);
             
-            // 3. DETECT `sql!("...")` IN THE TYPE POSITION
-            let mut found_sql: Option<LitStr> = None;
+            // --- IS SQL FIELD ---
+            
+            // A. Replace type with LazyStmt
+            field.ty = parse_quote!(rsql::internal_sqlite::efficient::lazy_statement::LazyStmt);
 
-            if let Type::Macro(type_macro) = &field.ty {
-                // Check if the macro is `sql!`
-                if type_macro.mac.path.is_ident("sql") {
-                    // Parse the content of the macro as a string literal
-                    match syn::parse2::<LitStr>(type_macro.mac.tokens.clone()) {
-                        Ok(lit) => found_sql = Some(lit),
-                        Err(_) => return quote! { compile_error!("sql!(...) must contain a string literal"); }.into(),
-                    }
+            // B. Initializer
+            sql_assignments.push(quote! {
+                #ident: rsql::internal_sqlite::efficient::lazy_statement::LazyStmt {
+                    sql_query: #sql_lit,
+                    stmt: std::ptr::null_mut(),
                 }
-            }
+            });
 
-            if let Some(sql_lit) = found_sql {
-                // --- IT IS A SQL FIELD ---
-
-                // A. Change the type in the struct definition from `sql!(...)` to `LazyStmt`
-                field.ty = parse_quote! { 
-                    rsql::internal_sqlite::efficient::lazy_statement::LazyStmt 
-                };
-
-                // B. Generate the initializer for new()
-                sql_assignments.push(quote! {
-                    #ident: rsql::internal_sqlite::efficient::lazy_statement::LazyStmt {
-                        sql_query: #sql_lit, // <--- We use the string we found
-                        stmt: std::ptr::null_mut(),
-                    }
-                });
-
-                // C. Generate the method
-                generated_methods.push(quote! {
-                    pub fn #ident(&mut self) -> Result<rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt, rsql::errors::connection::SqlitePrepareErrors> {
-                        if self.#ident.stmt.is_null() {
-                            unsafe { 
-                                rsql::utility::utils::prepare_stmt(
-                                    self.__db.db, 
-                                    &mut self.#ident.stmt, 
-                                    self.#ident.sql_query
-                                )?; 
-                            }
+            // C. Method Generation
+            generated_methods.push(quote! {
+                #[doc = #doc_comment]
+                pub fn #ident(&mut self) -> Result<rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt, rsql::errors::connection::SqlitePrepareErrors> {
+                    if self.#ident.stmt.is_null() {
+                        unsafe { 
+                            rsql::utility::utils::prepare_stmt(
+                                self.__db.db, 
+                                &mut self.#ident.stmt, 
+                                self.#ident.sql_query
+                            )?; 
                         }
-                        Ok(rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt {
-                            stmt: self.#ident.stmt,
-                            conn: self.__db.db,
-                        })
                     }
-                });
-
-            } else {
-                // --- IT IS A STANDARD FIELD ---
-                let ty = &field.ty;
-                standard_params.push(quote! { #ident: #ty });
-                standard_assignments.push(quote! { #ident });
-            }
+                    Ok(rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt {
+                        stmt: self.#ident.stmt,
+                        conn: self.__db.db,
+                    })
+                }
+            });
+        } else {
+            // --- IS STANDARD FIELD ---
+            let ty = &field.ty;
+            standard_params.push(quote! { #ident: #ty });
+            standard_assignments.push(quote! { #ident });
         }
     }
 
-    // 4. GENERATE OUTPUT
-    let output = quote! {
+    // 3. INJECT LIFETIME <'a>
+    // parse_quote! makes this much more readable than manual construction
+    let lifetime_def: LifetimeParam = parse_quote!('a);
+    item_struct.generics.params.insert(0, GenericParam::Lifetime(lifetime_def));
+
+    // 4. INJECT __db FIELD
+    // We do this LAST so we didn't have to skip(1) in the loop above
+    fields.named.insert(0, parse_quote! {
+        __db: &'a rsql::internal_sqlite::efficient::lazy_connection::LazyConnection
+    });
+
+    let (impl_generics, ty_generics, where_clause) = item_struct.generics.split_for_impl();
+
+    // 5. Generate the final code
+    Ok(quote! {
         #item_struct
 
         impl #impl_generics #struct_name #ty_generics #where_clause {
             pub fn new(
-                db: &#lifetime_name rsql::internal_sqlite::efficient::lazy_connection::LazyConnection, 
-                #(#standard_params,)*
+                db: &'a rsql::internal_sqlite::efficient::lazy_connection::LazyConnection, 
+                #(#standard_params),* 
             ) -> Self {
                 Self {
                     __db: db,
-                    #(#standard_assignments,)* 
+                    #(#standard_assignments,)*
                     #(#sql_assignments,)*
                 }
             }
 
             #(#generated_methods)*
         }
-    };
+    })
+}
 
-    output.into()
+/// Helper to extract the string literal from `sql!("SELECT...")`
+fn parse_sql_macro_type(ty: &Type) -> Option<LitStr> {
+    if let Type::Macro(type_macro) = ty {
+        if type_macro.mac.path.is_ident("sql") {
+            // syn::parse2 is powerful: it takes a TokenStream and parses it into a Node
+            return syn::parse2::<LitStr>(type_macro.mac.tokens.clone()).ok();
+        }
+    }
+    None
 }
 
 #[proc_macro_derive(SqlMapping)]
