@@ -6,7 +6,7 @@ mod sql;
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::quote;
-use syn::{Data, DeriveInput, Fields, GenericParam, Ident, ItemStruct, Lifetime, LifetimeParam, LitStr, parse_macro_input, parse_quote};
+use syn::{Data, DeriveInput, Fields, GenericParam, Ident, ItemStruct, Lifetime, LifetimeParam, LitStr, Type, parse_macro_input, parse_quote};
 
 use crate::{ execute::Execute, query::Query};
 
@@ -22,12 +22,6 @@ pub fn query(input: TokenStream) -> TokenStream {
     quote! { #parsed_input }.into()
 }
 
-// #[proc_macro]
-// pub fn check(input: TokenStream) -> TokenStream {
-//     let parsed_input = parse_macro_input!(input as Check);
-//     quote! { #parsed_input }.into()
-// }
-
 
 #[proc_macro_attribute]
 pub fn lazy_sql(_args: TokenStream, input: TokenStream) -> TokenStream {
@@ -38,7 +32,7 @@ pub fn lazy_sql(_args: TokenStream, input: TokenStream) -> TokenStream {
     let lifetime_param = GenericParam::Lifetime(LifetimeParam::new(lifetime_name.clone()));
     item_struct.generics.params.insert(0, lifetime_param);
 
-    // 2. INJECT __db FIELD (Using FULL PATH now)
+    // 2. INJECT __db FIELD
     if let syn::Fields::Named(ref mut fields) = item_struct.fields {
         let db_field: syn::Field = parse_quote! {
             __db: &#lifetime_name rsql::internal_sqlite::efficient::lazy_connection::LazyConnection
@@ -57,35 +51,41 @@ pub fn lazy_sql(_args: TokenStream, input: TokenStream) -> TokenStream {
     let mut generated_methods = Vec::new();
 
     if let syn::Fields::Named(ref mut fields) = item_struct.fields {
-        // Skip index 0 (the __db field)
+        // Skip __db
         for field in fields.named.iter_mut().skip(1) {
             let ident = field.ident.as_ref().unwrap();
-            let ty = &field.ty;
-
-            let mut sql_lit: Option<LitStr> = None;
-            let mut attr_to_remove = None;
             
-            for (i, attr) in field.attrs.iter().enumerate() {
-                if attr.path().is_ident("sql") {
-                    if let Ok(lit) = attr.parse_args::<LitStr>() {
-                        sql_lit = Some(lit);
-                        attr_to_remove = Some(i);
+            // 3. DETECT `sql!("...")` IN THE TYPE POSITION
+            let mut found_sql: Option<LitStr> = None;
+
+            if let Type::Macro(type_macro) = &field.ty {
+                // Check if the macro is `sql!`
+                if type_macro.mac.path.is_ident("sql") {
+                    // Parse the content of the macro as a string literal
+                    match syn::parse2::<LitStr>(type_macro.mac.tokens.clone()) {
+                        Ok(lit) => found_sql = Some(lit),
+                        Err(_) => return quote! { compile_error!("sql!(...) must contain a string literal"); }.into(),
                     }
                 }
             }
 
-            if let Some(i) = attr_to_remove {
-                field.attrs.remove(i);
-            }
+            if let Some(sql_lit) = found_sql {
+                // --- IT IS A SQL FIELD ---
 
-            if let Some(sql) = sql_lit {
+                // A. Change the type in the struct definition from `sql!(...)` to `LazyStmt`
+                field.ty = parse_quote! { 
+                    rsql::internal_sqlite::efficient::lazy_statement::LazyStmt 
+                };
+
+                // B. Generate the initializer for new()
                 sql_assignments.push(quote! {
                     #ident: rsql::internal_sqlite::efficient::lazy_statement::LazyStmt {
-                        sql_query: #sql,
+                        sql_query: #sql_lit, // <--- We use the string we found
                         stmt: std::ptr::null_mut(),
                     }
                 });
 
+                // C. Generate the method
                 generated_methods.push(quote! {
                     pub fn #ident(&mut self) -> Result<rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt, rsql::errors::connection::SqlitePrepareErrors> {
                         if self.#ident.stmt.is_null() {
@@ -103,19 +103,21 @@ pub fn lazy_sql(_args: TokenStream, input: TokenStream) -> TokenStream {
                         })
                     }
                 });
+
             } else {
+                // --- IT IS A STANDARD FIELD ---
+                let ty = &field.ty;
                 standard_params.push(quote! { #ident: #ty });
                 standard_assignments.push(quote! { #ident });
             }
         }
     }
 
-    // 3. GENERATE OUTPUT (Using FULL PATH in new() as well)
+    // 4. GENERATE OUTPUT
     let output = quote! {
         #item_struct
 
         impl #impl_generics #struct_name #ty_generics #where_clause {
-            
             pub fn new(
                 db: &#lifetime_name rsql::internal_sqlite::efficient::lazy_connection::LazyConnection, 
                 #(#standard_params,)*

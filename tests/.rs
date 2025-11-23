@@ -4,11 +4,7 @@ extern crate std;
 #[prelude_import]
 use std::prelude::rust_2024::*;
 use rsql::{
-    SqlMapping,
-    internal_sqlite::efficient::{
-        lazy_connection::LazyConnection, lazy_statement::LazyStmt,
-    },
-    lazy_sql,
+    SqlMapping, internal_sqlite::efficient::lazy_connection::LazyConnection, lazy_sql,
 };
 struct OrdersItemCount {
     pub order_id: i32,
