@@ -3,7 +3,6 @@ mod query;
 mod compile_time_check;
 
 use proc_macro::TokenStream;
-use proc_macro2::Span;
 use quote::quote;
 use syn::{Data, DeriveInput, Fields, GenericParam, Ident, ItemStruct, Lifetime, LifetimeParam, LitStr, Type, parse_macro_input, parse_quote, spanned::Spanned};
 
@@ -54,7 +53,7 @@ fn expand(item_struct: &mut ItemStruct) -> syn::Result<proc_macro2::TokenStream>
         let ident = field.ident.as_ref().unwrap();
 
         // Check if type is sql!("...")
-        if let Some(sql_lit) = parse_sql_macro_type(&field.ty) {
+        if let Some(sql_lit) = parse_sql_macro_type(&field.ty)? {
             let sql_query = sql_lit.value();
             let doc_comment = format!(" **SQL**\n```sql\n{}", sql_query);
             
@@ -132,15 +131,20 @@ fn expand(item_struct: &mut ItemStruct) -> syn::Result<proc_macro2::TokenStream>
     })
 }
 
-/// Helper to extract the string literal from `sql!("SELECT...")`
-fn parse_sql_macro_type(ty: &Type) -> Option<LitStr> {
-    if let Type::Macro(type_macro) = ty {
-        if type_macro.mac.path.is_ident("sql") {
-            // syn::parse2 is powerful: it takes a TokenStream and parses it into a Node
-            return syn::parse2::<LitStr>(type_macro.mac.tokens.clone()).ok();
-        }
-    }
-    None
+fn parse_sql_macro_type(ty: &Type) -> syn::Result<Option<LitStr>> {
+    if let Type::Macro(type_macro) = ty 
+        && type_macro.mac.path.is_ident("sql") {
+        let lit: LitStr = syn::parse2(type_macro.mac.tokens.clone())
+            .map_err(|_| syn::Error::new(
+                type_macro.mac.tokens.span(),
+            "sql!(...) must contain a string"
+                ))?;
+            
+            return Ok(Some(lit));
+
+            }
+        
+        Ok(None)
 }
 
 #[proc_macro_derive(SqlMapping)]
