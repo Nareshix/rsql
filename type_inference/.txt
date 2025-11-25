@@ -1,0 +1,29 @@
+TableSchema {
+    table_name: "users",
+    columns: [
+        ColumnInfo {
+            name: "id",
+            data_type: "INTEGER",
+            check_constraint: None,
+        },
+        ColumnInfo {
+            name: "name",
+            data_type: "TEXT",
+            check_constraint: None,
+        },
+        ColumnInfo {
+            name: "age",
+            data_type: "INTEGER",
+            check_constraint: Some(
+                "age >= 18",
+            ),
+        },
+        ColumnInfo {
+            name: "status",
+            data_type: "TEXT",
+            check_constraint: Some(
+                "status IN ('active', 'inactive')",
+            ),
+        },
+    ],
+}
