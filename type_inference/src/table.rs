@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use sqlparser::ast::{ColumnOption, CreateTable, Statement};
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
@@ -38,13 +40,13 @@ fn convert_sqlite_to_rust_type(sql:String) -> Type{
 }
 
 /// Strictly only checks for Check COnstraints
-pub fn create_table(sql: &str) -> Option<TableSchema> {
+pub fn create_table(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
     let dialect = SQLiteDialect {};
 
     let ast = Parser::parse_sql(&dialect, sql).unwrap();
 
-    if let Statement::CreateTable(CreateTable { name, columns, .. }) = &ast[0] {
-        Some(TableSchema {
+    let schema = if let Statement::CreateTable(CreateTable { name, columns, .. }) = &ast[0] {
+        TableSchema {
             table_name: name.to_string(),
             columns: columns
                 .iter()
@@ -66,8 +68,10 @@ pub fn create_table(sql: &str) -> Option<TableSchema> {
                     }
                 })
                 .collect(),
-        })
+        }
     } else {
-        None
-    }
+        panic!("ads"); //TODO
+    };
+    tables.insert(schema.table_name, schema.columns);
+    
 }

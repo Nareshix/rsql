@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use sqlparser::ast::{BinaryOperator, Expr, Value};
+use sqlparser::{ast::{BinaryOperator, Expr, SelectItem, SetExpr, Statement, Value}, dialect::SQLiteDialect, parser::Parser};
 
-use crate::table::TableSchema;
+use crate::table::{ColumnInfo};
 // TODO, need to handle cases when it can be NULL
 #[derive(Debug, Clone)]
 pub enum Type {
@@ -24,21 +24,58 @@ fn derive_math_type(left: Type, right: Type) -> Type {
     Type::Int
 }
 
+pub fn get_type_of_columns_from_select(sql:&str, tables: &HashMap<String, Vec<ColumnInfo>>){
 
-pub fn infer_type(expr: &Expr, schema: &TableSchema) -> Type {
-    //TODO optimise it so it dosent create new hasmap eveyritme it recurses
-    let mut tables = HashMap::new();
-    tables.insert(schema.table_name.clone(), schema.columns.clone());
+    let ast = &Parser::parse_sql(&SQLiteDialect {}, sql).unwrap()[0];
 
-    match expr {
 
-        Expr::Identifier(ident) => {
-            let col_name = &ident.value;
-            for col in &schema.columns {
-                if col.name == *col_name {
-                    return col.data_type.clone();
+        match ast {
+        // Check if it is a Query (SELECT)
+        Statement::Query(query) => {
+            // Check the body of the query (Standard SELECT)
+            if let SetExpr::Select(select) = &*query.body {
+                // Iterate over the columns requested (projection)
+                for item in &select.projection {
+                    match item {
+                        // Case: SELECT id ...
+                        SelectItem::UnnamedExpr(expr) => {
+                            let inferred = infer_type(expr, tables);
+                            println!("Expression: {:?}, Type: {:?}", expr, inferred);
+                        }
+                        // Case: SELECT id AS user_id ...
+                        SelectItem::ExprWithAlias { expr, alias } => {
+                            let inferred = infer_type(expr, tables);
+                            println!("Alias: {}, Type: {:?}", alias, inferred);
+                        }
+                        // Case: SELECT * ...
+                        SelectItem::Wildcard(_) => {
+                            println!("Wildcard (*) - logic needs to expand tables columns");
+                        }
+                        _ => println!("Other select item type"),
+                    }
                 }
             }
+        }
+        _ => println!("Not a select statement"),
+    }
+
+
+}
+
+fn infer_type(expr: &Expr, tables: &HashMap<String, Vec<ColumnInfo>>) -> Type {
+    //TODO optimise it so it dosent create new hasmap eveyritme it recurses
+
+    match expr {
+        
+        Expr::Identifier(ident) => {
+            let col_name = &ident.value;
+            for columns in tables.values() {
+                for col in columns {
+                    if col.name == *col_name {
+                        return col.data_type.clone();
+                    }
+                }
+    }
             Type::Unknown 
         },
 
@@ -92,8 +129,8 @@ pub fn infer_type(expr: &Expr, schema: &TableSchema) -> Type {
         | Expr::AllOp {.. } => Type::Bool,
 
         Expr::BinaryOp { left, op, right } => {
-            let left_type = infer_type(left, schema);
-            let right_type = infer_type(right, schema);
+            let left_type = infer_type(left, tables);
+            let right_type = infer_type(right, tables);
 
             match op {
                 // Comparisons always return Bool
@@ -128,7 +165,7 @@ pub fn infer_type(expr: &Expr, schema: &TableSchema) -> Type {
 
             // +, -
             sqlparser::ast::UnaryOperator::Plus 
-            | sqlparser::ast::UnaryOperator::Minus => infer_type(expr, schema),
+            | sqlparser::ast::UnaryOperator::Minus => infer_type(expr, tables),
 
             // <NOT> always returns Bool
             sqlparser::ast::UnaryOperator::Not => Type::Bool,
@@ -138,7 +175,7 @@ pub fn infer_type(expr: &Expr, schema: &TableSchema) -> Type {
         }
 
         // Nested expression e.g. (foo > bar) or (1)
-        Expr::Nested(inner_expr) => infer_type(inner_expr, schema),
+        Expr::Nested(inner_expr) => infer_type(inner_expr, tables),
 
         Expr::Cast { data_type, .. } => {
             match data_type {
