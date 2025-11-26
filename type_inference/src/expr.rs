@@ -24,7 +24,7 @@ fn derive_math_type(left: Type, right: Type) -> Type {
     Type::Int
 }
 
-pub fn get_type_of_columns_from_select(sql: &str, tables: &HashMap<String, Vec<FieldInfo>>) {
+pub fn get_type_of_columns_from_select(sql: &str, tables: &HashMap<String, Vec<FieldInfo>>) -> Vec<Type>{
 
     let ast = &Parser::parse_sql(&SQLiteDialect {}, sql).unwrap()[0];
 
@@ -35,30 +35,47 @@ pub fn get_type_of_columns_from_select(sql: &str, tables: &HashMap<String, Vec<F
                 // 1. Collect table names from the FROM clause
                 let mut from_tables = Vec::new();
                 for table in &select.from {
+                    // A. Get the main table 
                     if let TableFactor::Table { name, .. } = &table.relation {
                         from_tables.push(name.to_string());
                     }
+                    
+                    // B. Get the JOINED tables
+                    for join in &table.joins {
+                        if let TableFactor::Table { name, .. } = &join.relation {
+                            from_tables.push(name.to_string());
+                        }
+                    }
                 }
 
+            let mut active_tables: HashMap<String, Vec<FieldInfo>> = HashMap::new();
+                for name in &from_tables {
+                    if let Some(cols) = tables.get(name) {
+                        active_tables.insert(name.clone(), cols.clone());
+                    }
+                }
+
+                
+                let mut results = Vec::new();
                 // 2. Iterate over the columns (projection)
                 for item in &select.projection {
                     match item {
                         // Case: SELECT id
                         SelectItem::UnnamedExpr(expr) => {
-                            let inferred = infer_type(expr, tables);
-                            println!("{:?}", inferred);
+                            let inferred = infer_type(expr,  &active_tables);
+                            results.push(inferred);
                         }
                         // Case: SELECT id AS user_id
                         SelectItem::ExprWithAlias { expr, .. } => {
-                            let inferred = infer_type(expr, tables);
-                            println!("{:?}", inferred);
+                            let inferred = infer_type(expr,  &active_tables);
+                            results.push(inferred);
                         }
                         // Case: SELECT *
                         SelectItem::Wildcard(_) => {
                             for table_name in &from_tables {
                                 if let Some(columns) = tables.get(table_name) {
                                     for col in columns {
-                                        println!("{:?}", col.data_type);
+                                        results.push(col.data_type.clone());
                                     }
                                 }
                             }
@@ -69,13 +86,16 @@ pub fn get_type_of_columns_from_select(sql: &str, tables: &HashMap<String, Vec<F
                                 let table_name = obj.to_string();
                                 if let Some(columns) = tables.get(&table_name) {
                                     for col in columns {
-                                        println!("{:?}", col.data_type);
+                                        results.push(col.data_type.clone());
                                     }
                                 }
                             }
                         }
                     }
                 }
+                results
+            } else {
+                panic!("too lazy to implement eror checking. so let it fail") //TODO   
             }
         }
         _ => panic!("Not a select statement"), //TODO
