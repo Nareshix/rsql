@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use sqlparser::{ast::{BinaryOperator, Expr, SelectItem, SetExpr, Statement, Value}, dialect::SQLiteDialect, parser::Parser};
+use sqlparser::{ast::{BinaryOperator, Expr, SelectItem, SelectItemQualifiedWildcardKind, SetExpr, Statement, TableFactor, Value}, dialect::SQLiteDialect, parser::Parser};
 
 use crate::table::{FieldInfo};
 // TODO, need to handle cases when it can be NULL
@@ -24,43 +24,64 @@ fn derive_math_type(left: Type, right: Type) -> Type {
     Type::Int
 }
 
-pub fn get_type_of_columns_from_select(sql:&str, tables: &HashMap<String, Vec<FieldInfo>>){
+pub fn get_type_of_columns_from_select(sql: &str, tables: &HashMap<String, Vec<FieldInfo>>) {
 
     let ast = &Parser::parse_sql(&SQLiteDialect {}, sql).unwrap()[0];
 
-
-        match ast {
-        // Check if it is a Query (SELECT)
+    match ast {
         Statement::Query(query) => {
-            // Check the body of the query (Standard SELECT)
             if let SetExpr::Select(select) = &*query.body {
-                // Iterate over the columns requested (projection)
+                
+                // 1. Collect table names from the FROM clause
+                let mut from_tables = Vec::new();
+                for table in &select.from {
+                    if let TableFactor::Table { name, .. } = &table.relation {
+                        from_tables.push(name.to_string());
+                    }
+                }
+
+                // 2. Iterate over the columns (projection)
                 for item in &select.projection {
                     match item {
-                        // Case: SELECT id ...
+                        // Case: SELECT id
                         SelectItem::UnnamedExpr(expr) => {
                             let inferred = infer_type(expr, tables);
-                            println!("Expression: {:?}, Type: {:?}", expr, inferred);
+                            println!("{:?}", inferred);
                         }
-                        // Case: SELECT id AS user_id ...
-                        SelectItem::ExprWithAlias { expr, alias } => {
+                        // Case: SELECT id AS user_id
+                        SelectItem::ExprWithAlias { expr, .. } => {
                             let inferred = infer_type(expr, tables);
-                            println!("Alias: {}, Type: {:?}", alias, inferred);
+                            println!("{:?}", inferred);
                         }
-                        // Case: SELECT * ...
+                        // Case: SELECT *
                         SelectItem::Wildcard(_) => {
-                            println!("Wildcard (*) - logic needs to expand tables columns");
+                            for table_name in &from_tables {
+                                if let Some(columns) = tables.get(table_name) {
+                                    for col in columns {
+                                        println!("{:?}", col.data_type);
+                                    }
+                                }
+                            }
                         }
-                        _ => println!("Other select item type"),
+                        // Case: SELECT users.*
+                        SelectItem::QualifiedWildcard(kind, _) => {
+                            if let SelectItemQualifiedWildcardKind::ObjectName(obj) = kind {
+                                let table_name = obj.to_string();
+                                if let Some(columns) = tables.get(&table_name) {
+                                    for col in columns {
+                                        println!("{:?}", col.data_type);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
-        _ => println!("Not a select statement"),
+        _ => panic!("Not a select statement"), //TODO
     }
-
-
 }
+
 
 fn infer_type(expr: &Expr, tables: &HashMap<String, Vec<FieldInfo>>) -> Type {
     //TODO optimise it so it dosent create new hasmap eveyritme it recurses
