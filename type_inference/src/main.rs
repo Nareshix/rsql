@@ -1,4 +1,3 @@
-use sqlparser::{dialect::SQLiteDialect, parser::Parser};
 use std::collections::HashMap;
 
 use crate::{expr::get_type_of_columns_from_select, table::create_table};
