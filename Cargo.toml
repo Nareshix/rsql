@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "rsql",        
-    "macros", "tests", "rsql-core",
+    "macros", "tests", "rsql-core", "type_inference"
 ]
 
 resolver = "3"
