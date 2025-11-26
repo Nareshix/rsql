@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use sqlparser::{ast::{BinaryOperator, Expr, SelectItem, SetExpr, Statement, Value}, dialect::SQLiteDialect, parser::Parser};
 
-use crate::table::{ColumnInfo};
+use crate::table::{FieldInfo};
 // TODO, need to handle cases when it can be NULL
 #[derive(Debug, Clone)]
 pub enum Type {
@@ -24,7 +24,7 @@ fn derive_math_type(left: Type, right: Type) -> Type {
     Type::Int
 }
 
-pub fn get_type_of_columns_from_select(sql:&str, tables: &HashMap<String, Vec<ColumnInfo>>){
+pub fn get_type_of_columns_from_select(sql:&str, tables: &HashMap<String, Vec<FieldInfo>>){
 
     let ast = &Parser::parse_sql(&SQLiteDialect {}, sql).unwrap()[0];
 
@@ -62,7 +62,7 @@ pub fn get_type_of_columns_from_select(sql:&str, tables: &HashMap<String, Vec<Co
 
 }
 
-fn infer_type(expr: &Expr, tables: &HashMap<String, Vec<ColumnInfo>>) -> Type {
+fn infer_type(expr: &Expr, tables: &HashMap<String, Vec<FieldInfo>>) -> Type {
     //TODO optimise it so it dosent create new hasmap eveyritme it recurses
 
     match expr {

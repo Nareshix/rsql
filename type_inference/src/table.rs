@@ -12,7 +12,7 @@ use crate::expr::Type;
 // 1. The Structs
 #[derive(Debug, Clone)]
 #[allow(unused)]
-pub struct ColumnInfo {
+pub struct FieldInfo {
     pub name: String,
     pub data_type: Type,
     pub check_constraint: Option<String>,
@@ -22,7 +22,7 @@ pub struct ColumnInfo {
 #[allow(unused)]
 pub struct TableSchema {
     pub table_name: String,
-    pub columns: Vec<ColumnInfo>,
+    pub fields: Vec<FieldInfo>,
 }
 
 fn convert_sqlite_to_rust_type(sql:String) -> Type{
@@ -40,7 +40,7 @@ fn convert_sqlite_to_rust_type(sql:String) -> Type{
 }
 
 /// Strictly only checks for Check COnstraints
-pub fn create_table(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
+pub fn create_table(sql: &str, tables: &mut HashMap<String, Vec<FieldInfo>>) {
     let dialect = SQLiteDialect {};
 
     let ast = Parser::parse_sql(&dialect, sql).unwrap();
@@ -48,7 +48,7 @@ pub fn create_table(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
     let schema = if let Statement::CreateTable(CreateTable { name, columns, .. }) = &ast[0] {
         TableSchema {
             table_name: name.to_string(),
-            columns: columns
+            fields: columns
                 .iter()
                 .map(|col| {
                     let mut check_expr = None;
@@ -61,7 +61,7 @@ pub fn create_table(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
                     }
 
                     let data_type = convert_sqlite_to_rust_type(col.data_type.to_string());
-                    ColumnInfo {
+                    FieldInfo {
                         name: col.name.value.clone(),
                         data_type,
                         check_constraint: check_expr,
@@ -72,6 +72,6 @@ pub fn create_table(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
     } else {
         panic!("ads"); //TODO
     };
-    tables.insert(schema.table_name, schema.columns);
+    tables.insert(schema.table_name, schema.fields);
     
 }
