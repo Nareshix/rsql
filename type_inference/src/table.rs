@@ -4,13 +4,10 @@ use sqlparser::ast::{ColumnOption, CreateTable, Statement};
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 
-
-
 use crate::expr::Type;
 
-
 // 1. The Structs
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[allow(unused)]
 pub struct FieldInfo {
     pub name: String,
@@ -25,8 +22,9 @@ pub struct TableSchema {
     pub fields: Vec<FieldInfo>,
 }
 
-fn convert_sqlite_to_rust_type(sql:String) -> Type{
-    if sql == "TEXT"{
+#[allow(unused)]
+fn convert_sqlite_to_rust_type(sql: String) -> Type {
+    if sql == "TEXT" {
         Type::String
     } else if sql == "INTEGER" {
         Type::Int
@@ -36,10 +34,11 @@ fn convert_sqlite_to_rust_type(sql:String) -> Type{
         Type::Null
     }
     // TODO bool
-
 }
 
-/// Strictly only checks for Check COnstraints
+#[allow(unused)]
+/// not the best naming but basically, parses the sql
+/// and creates an ast for table. then it  is inserted into the Hashmap.
 pub fn create_table(sql: &str, tables: &mut HashMap<String, Vec<FieldInfo>>) {
     let dialect = SQLiteDialect {};
 
@@ -70,8 +69,7 @@ pub fn create_table(sql: &str, tables: &mut HashMap<String, Vec<FieldInfo>>) {
                 .collect(),
         }
     } else {
-        panic!("ads"); //TODO
+        panic!("Ensure that it is CREATE table"); //TODO
     };
     tables.insert(schema.table_name, schema.fields);
-    
 }

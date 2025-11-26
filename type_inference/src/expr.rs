@@ -1,8 +1,15 @@
 use std::collections::HashMap;
 
-use sqlparser::{ast::{BinaryOperator, Expr, SelectItem, SelectItemQualifiedWildcardKind, SetExpr, Statement, TableFactor, Value}, dialect::SQLiteDialect, parser::Parser};
+use sqlparser::{
+    ast::{
+        BinaryOperator, Expr, SelectItem, SelectItemQualifiedWildcardKind, SetExpr, Statement,
+        TableFactor, Value,
+    },
+    dialect::SQLiteDialect,
+    parser::Parser,
+};
 
-use crate::table::{FieldInfo};
+use crate::table::FieldInfo;
 // TODO, need to handle cases when it can be NULL
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
@@ -15,16 +22,18 @@ pub enum Type {
     Unknown,
 }
 
-
 /// if either type is a float, returns **Float**. Or else, it returns **Int**
 fn derive_math_type(left: Type, right: Type) -> Type {
     if left == Type::Float || right == Type::Float {
-        return Type::Float
+        return Type::Float;
     }
     Type::Int
 }
 
-pub fn get_type_of_columns_from_select(sql: &str, tables: &HashMap<String, Vec<FieldInfo>>) -> Vec<Type> {
+pub fn get_type_of_columns_from_select(
+    sql: &str,
+    tables: &HashMap<String, Vec<FieldInfo>>,
+) -> Vec<Type> {
     let statements = Parser::parse_sql(&SQLiteDialect {}, sql).unwrap();
     let select = match statements.first() {
         Some(Statement::Query(q)) => match &*q.body {
@@ -35,7 +44,9 @@ pub fn get_type_of_columns_from_select(sql: &str, tables: &HashMap<String, Vec<F
     };
 
     // 2. Identify tables in scope
-    let table_names: Vec<String> = select.from.iter()
+    let table_names: Vec<String> = select
+        .from
+        .iter()
         .flat_map(|t| std::iter::once(&t.relation).chain(t.joins.iter().map(|j| &j.relation)))
         .filter_map(|rel| match rel {
             TableFactor::Table { name, .. } => Some(name.to_string()),
@@ -44,37 +55,41 @@ pub fn get_type_of_columns_from_select(sql: &str, tables: &HashMap<String, Vec<F
         .collect();
 
     // Create the context for infer_type
-    let active_tables: HashMap<String, Vec<FieldInfo>> = table_names.iter()
+    let active_tables: HashMap<String, Vec<FieldInfo>> = table_names
+        .iter()
         .filter_map(|name| tables.get(name).map(|cols| (name.clone(), cols.clone())))
         .collect();
 
-    select.projection.iter().flat_map(|item| -> Vec<Type> {
-        match item {
-            // Combine both expression cases
-            SelectItem::UnnamedExpr(expr) | SelectItem::ExprWithAlias { expr, .. } => {
-                vec![infer_type(expr, &active_tables)]
-            }
-            // Handle SELECT * (Must iterate table_names to preserve column order)
-            SelectItem::Wildcard(_) => {
-                table_names.iter()
+    select
+        .projection
+        .iter()
+        .flat_map(|item| -> Vec<Type> {
+            match item {
+                // Combine both expression cases
+                SelectItem::UnnamedExpr(expr) | SelectItem::ExprWithAlias { expr, .. } => {
+                    vec![infer_type(expr, &active_tables)]
+                }
+                // Handle SELECT * (Must iterate table_names to preserve column order)
+                SelectItem::Wildcard(_) => table_names
+                    .iter()
                     .filter_map(|name| tables.get(name))
                     .flat_map(|cols| cols.iter().map(|c| c.data_type.clone()))
-                    .collect()
-            }
-            // Handle SELECT table.*
-            SelectItem::QualifiedWildcard(SelectItemQualifiedWildcardKind::ObjectName(obj), _) => {
-                tables.get(&obj.to_string())
+                    .collect(),
+                // Handle SELECT table.*
+                SelectItem::QualifiedWildcard(
+                    SelectItemQualifiedWildcardKind::ObjectName(obj),
+                    _,
+                ) => tables
+                    .get(&obj.to_string())
                     .map(|cols| cols.iter().map(|c| c.data_type.clone()).collect())
-                    .unwrap_or_default()
-            },
-            _ => panic!("asd")
-            
-        }
-    }).collect()
+                    .unwrap_or_default(),
+                _ => panic!("asd"),
+            }
+        })
+        .collect()
 }
 
 fn infer_type(expr: &Expr, tables: &HashMap<String, Vec<FieldInfo>>) -> Type {
-    //TODO optimise it so it dosent create new hasmap eveyritme it recurses
 
     match expr {
         
