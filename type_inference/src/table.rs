@@ -2,20 +2,39 @@ use sqlparser::ast::{ColumnOption, CreateTable, Statement};
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 
+
+
+use crate::expr::Type;
+
+
 // 1. The Structs
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(unused)]
 pub struct ColumnInfo {
-    name: String,
-    data_type: String,
-    check_constraint: Option<String>,
+    pub name: String,
+    pub data_type: Type,
+    pub check_constraint: Option<String>,
 }
 
 #[derive(Debug)]
 #[allow(unused)]
 pub struct TableSchema {
-    table_name: String,
-    columns: Vec<ColumnInfo>,
+    pub table_name: String,
+    pub columns: Vec<ColumnInfo>,
+}
+
+fn convert_sqlite_to_rust_type(sql:String) -> Type{
+    if sql == "TEXT"{
+        Type::String
+    } else if sql == "INTEGER" {
+        Type::Int
+    } else if sql == "REAL" {
+        Type::Float
+    } else {
+        Type::Null
+    }
+    // TODO bool
+
 }
 
 /// Strictly only checks for Check COnstraints
@@ -39,9 +58,10 @@ pub fn create_table(sql: &str) -> Option<TableSchema> {
                         }
                     }
 
+                    let data_type = convert_sqlite_to_rust_type(col.data_type.to_string());
                     ColumnInfo {
                         name: col.name.value.clone(),
-                        data_type: col.data_type.to_string(),
+                        data_type,
                         check_constraint: check_expr,
                     }
                 })

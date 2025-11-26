@@ -1,10 +1,14 @@
+use std::collections::HashMap;
+
 use sqlparser::ast::{BinaryOperator, Expr, Value};
 
-enum Type {
+use crate::table::TableSchema;
+// TODO, need to handle cases when it can be NULL
+#[derive(Debug, Clone)]
+pub enum Type {
     Int,
     Float,
     Bool,
-    BoolOrNull,
     String,
     Null,
     /// unable to infer
@@ -21,13 +25,26 @@ fn derive_math_type(left: Type, right: Type) -> Type {
 }
 
 
-fn infer_type(expr: &Expr) -> Type {
+pub fn infer_type(expr: &Expr, schema: &TableSchema) -> Type {
+    //TODO optimise it so it dosent create new hasmap eveyritme it recurses
+    let mut tables = HashMap::new();
+    tables.insert(schema.table_name.clone(), schema.columns.clone());
+
     match expr {
-        // --- CATEGORY 1: Leaf Nodes ---
 
-        // 1.a Column References
-        // Expr::Identifier(ident) => schema.get_col_type(&ident.value),
+        Expr::Identifier(ident) => {
+            let col_name = &ident.value;
+            for col in &schema.columns {
+                if col.name == *col_name {
+                    return col.data_type.clone();
+                }
+            }
+            Type::Unknown 
+        },
 
+        Expr::CompoundIdentifier(_) => todo!(),
+
+        
         // Raw Values e.g. SELECT 1 or SELECT "hello"
         Expr::Value(val) =>{
             
@@ -35,6 +52,7 @@ fn infer_type(expr: &Expr) -> Type {
             let numeral = &val.value;
              match numeral {
                 Value::Number(num, _) => {
+                    // TODO scientific notation
                     if num.contains("."){
                         return Type::Float
                     }
@@ -64,19 +82,18 @@ fn infer_type(expr: &Expr) -> Type {
         | Expr::IsNotUnknown(..) // i dont think sqlite has TODO
         | Expr::InSubquery { .. }
         | Expr::InUnnest { .. } // i dont think sqlite has TODO
-        | Expr::Exists { .. } => Type::Bool,
-
-        // regardless of input, returns either bool or null
-        Expr::Like { .. }
+        | Expr::Exists { .. }
+        // ---
+        |Expr::Like { .. }
         | Expr::SimilarTo { .. } // TODO does qlite support
         | Expr::Between { .. }
         | Expr::InList { .. }
         | Expr::AnyOp { .. }
-        | Expr::AllOp {.. } => Type::BoolOrNull,
+        | Expr::AllOp {.. } => Type::Bool,
 
         Expr::BinaryOp { left, op, right } => {
-            let left_type = infer_type(left);
-            let right_type = infer_type(right);
+            let left_type = infer_type(left, schema);
+            let right_type = infer_type(right, schema);
 
             match op {
                 // Comparisons always return Bool
@@ -111,9 +128,9 @@ fn infer_type(expr: &Expr) -> Type {
 
             // +, -
             sqlparser::ast::UnaryOperator::Plus 
-            | sqlparser::ast::UnaryOperator::Minus => infer_type(expr),
+            | sqlparser::ast::UnaryOperator::Minus => infer_type(expr, schema),
 
-            // NOT always returns Bool
+            // <NOT> always returns Bool
             sqlparser::ast::UnaryOperator::Not => Type::Bool,
 
                 _ => Type::Unknown
@@ -121,7 +138,7 @@ fn infer_type(expr: &Expr) -> Type {
         }
 
         // Nested expression e.g. (foo > bar) or (1)
-        Expr::Nested(inner_expr) => infer_type(inner_expr),
+        Expr::Nested(inner_expr) => infer_type(inner_expr, schema),
 
         Expr::Cast { data_type, .. } => {
             match data_type {
@@ -146,6 +163,7 @@ fn infer_type(expr: &Expr) -> Type {
                 _ => Type::Unknown,
             }
         }
+        //TODO functions
         // Expr::Function(func) => {
         //     let name = func.name.to_string().to_uppercase();
         //     match name.as_str() {
@@ -163,10 +181,3 @@ fn infer_type(expr: &Expr) -> Type {
         _ => Type::Unknown,
     }
 }
-
-// Leaf Nodes (Base cases): Literals (strings, numbers) and Column Identifiers.
-// Boolean Producers: Things that always return a Boolean (IS NULL, EXISTS, comparisons like =, >).
-// Type Preservers: Things that keep the input type (Parentheses, Unary Plus).
-// Math/Coercion: Things that combine type (+, -, *).
-// Functions: Things that need a lookup table (SUM, COUNT, SUBSTRING).
-
