@@ -4,7 +4,7 @@ use sqlparser::{ast::{BinaryOperator, Expr, SelectItem, SelectItemQualifiedWildc
 
 use crate::table::{FieldInfo};
 // TODO, need to handle cases when it can be NULL
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     Int,
     Float,
@@ -18,90 +18,60 @@ pub enum Type {
 
 /// if either type is a float, returns **Float**. Or else, it returns **Int**
 fn derive_math_type(left: Type, right: Type) -> Type {
-    if matches!(left, Type::Float) || matches!(right, Type::Float){
+    if left == Type::Float || right == Type::Float {
         return Type::Float
     }
     Type::Int
 }
 
-pub fn get_type_of_columns_from_select(sql: &str, tables: &HashMap<String, Vec<FieldInfo>>) -> Vec<Type>{
+pub fn get_type_of_columns_from_select(sql: &str, tables: &HashMap<String, Vec<FieldInfo>>) -> Vec<Type> {
+    let statements = Parser::parse_sql(&SQLiteDialect {}, sql).unwrap();
+    let select = match statements.first() {
+        Some(Statement::Query(q)) => match &*q.body {
+            SetExpr::Select(s) => s,
+            _ => panic!("Query body is not a SELECT"),
+        },
+        _ => panic!("Not a SELECT statement"),
+    };
 
-    let ast = &Parser::parse_sql(&SQLiteDialect {}, sql).unwrap()[0];
+    // 2. Identify tables in scope
+    let table_names: Vec<String> = select.from.iter()
+        .flat_map(|t| std::iter::once(&t.relation).chain(t.joins.iter().map(|j| &j.relation)))
+        .filter_map(|rel| match rel {
+            TableFactor::Table { name, .. } => Some(name.to_string()),
+            _ => None,
+        })
+        .collect();
 
-    match ast {
-        Statement::Query(query) => {
-            if let SetExpr::Select(select) = &*query.body {
-                
-                // 1. Collect table names from the FROM clause
-                let mut from_tables = Vec::new();
-                for table in &select.from {
-                    // A. Get the main table 
-                    if let TableFactor::Table { name, .. } = &table.relation {
-                        from_tables.push(name.to_string());
-                    }
-                    
-                    // B. Get the JOINED tables
-                    for join in &table.joins {
-                        if let TableFactor::Table { name, .. } = &join.relation {
-                            from_tables.push(name.to_string());
-                        }
-                    }
-                }
+    // Create the context for infer_type
+    let active_tables: HashMap<String, Vec<FieldInfo>> = table_names.iter()
+        .filter_map(|name| tables.get(name).map(|cols| (name.clone(), cols.clone())))
+        .collect();
 
-            let mut active_tables: HashMap<String, Vec<FieldInfo>> = HashMap::new();
-                for name in &from_tables {
-                    if let Some(cols) = tables.get(name) {
-                        active_tables.insert(name.clone(), cols.clone());
-                    }
-                }
-
-                
-                let mut results = Vec::new();
-                // 2. Iterate over the columns (projection)
-                for item in &select.projection {
-                    match item {
-                        // Case: SELECT id
-                        SelectItem::UnnamedExpr(expr) => {
-                            let inferred = infer_type(expr,  &active_tables);
-                            results.push(inferred);
-                        }
-                        // Case: SELECT id AS user_id
-                        SelectItem::ExprWithAlias { expr, .. } => {
-                            let inferred = infer_type(expr,  &active_tables);
-                            results.push(inferred);
-                        }
-                        // Case: SELECT *
-                        SelectItem::Wildcard(_) => {
-                            for table_name in &from_tables {
-                                if let Some(columns) = tables.get(table_name) {
-                                    for col in columns {
-                                        results.push(col.data_type.clone());
-                                    }
-                                }
-                            }
-                        }
-                        // Case: SELECT users.*
-                        SelectItem::QualifiedWildcard(kind, _) => {
-                            if let SelectItemQualifiedWildcardKind::ObjectName(obj) = kind {
-                                let table_name = obj.to_string();
-                                if let Some(columns) = tables.get(&table_name) {
-                                    for col in columns {
-                                        results.push(col.data_type.clone());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                results
-            } else {
-                panic!("too lazy to implement eror checking. so let it fail") //TODO   
+    select.projection.iter().flat_map(|item| -> Vec<Type> {
+        match item {
+            // Combine both expression cases
+            SelectItem::UnnamedExpr(expr) | SelectItem::ExprWithAlias { expr, .. } => {
+                vec![infer_type(expr, &active_tables)]
             }
+            // Handle SELECT * (Must iterate table_names to preserve column order)
+            SelectItem::Wildcard(_) => {
+                table_names.iter()
+                    .filter_map(|name| tables.get(name))
+                    .flat_map(|cols| cols.iter().map(|c| c.data_type.clone()))
+                    .collect()
+            }
+            // Handle SELECT table.*
+            SelectItem::QualifiedWildcard(SelectItemQualifiedWildcardKind::ObjectName(obj), _) => {
+                tables.get(&obj.to_string())
+                    .map(|cols| cols.iter().map(|c| c.data_type.clone()).collect())
+                    .unwrap_or_default()
+            },
+            _ => panic!("asd")
+            
         }
-        _ => panic!("Not a select statement"), //TODO
-    }
+    }).collect()
 }
-
 
 fn infer_type(expr: &Expr, tables: &HashMap<String, Vec<FieldInfo>>) -> Type {
     //TODO optimise it so it dosent create new hasmap eveyritme it recurses
@@ -120,7 +90,22 @@ fn infer_type(expr: &Expr, tables: &HashMap<String, Vec<FieldInfo>>) -> Type {
             Type::Unknown 
         },
 
-        Expr::CompoundIdentifier(_) => todo!(),
+        Expr::CompoundIdentifier(idents) => {
+            // We expect at least 2 parts, e.g., "table.column"
+            if idents.len() >= 2 {
+                let col_name = &idents[idents.len() - 1].value;
+                let table_name = &idents[idents.len() - 2].value;
+
+                if let Some(columns) = tables.get(table_name) {
+                    for col in columns {
+                        if col.name == *col_name {
+                            return col.data_type.clone();
+                        }
+                    }
+                }
+            }
+            Type::Unknown
+        },
 
         
         // Raw Values e.g. SELECT 1 or SELECT "hello"
