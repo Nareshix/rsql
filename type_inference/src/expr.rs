@@ -50,6 +50,8 @@ fn evaluate_expr_type(
     match expr {
 
         // ident can be either col name or table name, but for our use case only focus on col name
+        // We are assuming that there will strictly be one table only. If one is using more than 1 table.
+        // he should be more explicit (compile time check) and would be handled in CompoundIdentifier. 
         Expr::Identifier(ident) => {
             // TODO, span can possibly be used for better error handlin due to showing where the error is. keep that in mind
             let table_name = &table_names_from_select[0];
