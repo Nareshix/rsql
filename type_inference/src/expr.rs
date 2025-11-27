@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
 use sqlparser::ast::{
-        BinaryOperator, DataType, Expr, Value
-    };
+    BinaryOperator, DataType, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, Value,
+};
 
-use crate::table::{ColumnInfo};
+use crate::table::ColumnInfo;
 // TODO, need to handle cases when it can be NULL
 #[derive(Debug, Clone, PartialEq)]
 pub enum BaseType {
@@ -21,27 +21,34 @@ pub enum BaseType {
 pub struct Type {
     pub base_type: BaseType,
     /// true if theres a chance of it being null, else false
-    pub nullable: bool
+    pub nullable: bool,
 }
 
+#[allow(unused)]
 /// if either type is a float, returns **Float**. Or else, it returns **Int**
 fn derive_math_type(left: Type, right: Type) -> Type {
     let nullable = left.nullable || right.nullable;
 
     let base = match (&left.base_type, &right.base_type) {
-        (BaseType::Null, _) | (_, BaseType::Null) => BaseType::Null, 
+        (BaseType::Null, _) | (_, BaseType::Null) => BaseType::Null,
         (BaseType::Real, _) | (_, BaseType::Real) => BaseType::Real,
         (BaseType::Integer, BaseType::Integer) => BaseType::Integer,
         _ => BaseType::Null,
     };
 
-
-    Type { base_type: base, nullable }
+    Type {
+        base_type: base,
+        nullable,
+    }
 }
 
-
-fn evaluate_expr_type(expr: &Expr, table_names_from_select:Vec<String>, all_tables: &HashMap<String, Vec<ColumnInfo>>) -> Type {
+fn evaluate_expr_type(
+    expr: &Expr,
+    table_names_from_select: Vec<String>,
+    all_tables: &HashMap<String, Vec<ColumnInfo>>,
+) -> Type {
     match expr {
+
         // ident can be either col name or table name, but for our use case only focus on col name
         Expr::Identifier(ident) => {
             // TODO, span can possibly be used for better error handlin due to showing where the error is. keep that in mind
@@ -59,8 +66,8 @@ fn evaluate_expr_type(expr: &Expr, table_names_from_select:Vec<String>, all_tabl
 
         Expr::CompoundIdentifier(idents) => {
             // We expect 2 parts, e.g., "table.column"
-            let col_name = &idents[0].value;
-            let table_name = &idents[1].value;
+            let table_name = &idents[0].value;
+            let col_name = &idents[1].value;
 
             let column_infos = &all_tables[table_name];
             for column_info in column_infos {
@@ -71,8 +78,7 @@ fn evaluate_expr_type(expr: &Expr, table_names_from_select:Vec<String>, all_tabl
             panic!("multiple identifier not found in tables.")
         },
  
-
-        
+   
         // Raw Values e.g. SELECT 1 or SELECT "hello"
         Expr::Value(val) =>{
             
@@ -94,7 +100,8 @@ fn evaluate_expr_type(expr: &Expr, table_names_from_select:Vec<String>, all_tabl
                 _ => Type { base_type: BaseType::Null, nullable: false },
             
         }
-    }
+        },
+        
         // these always return a bool, regardless of input.
         Expr::IsNull(_)
         | Expr::IsNotNull(_)
@@ -147,7 +154,7 @@ fn evaluate_expr_type(expr: &Expr, table_names_from_select:Vec<String>, all_tabl
 
                 _ => Type { base_type: BaseType::Null, nullable: false },
             }
-        }
+        },
 
         Expr::UnaryOp { op, expr } => {
             // op is one the 3, (+, -, NOT)
@@ -162,7 +169,7 @@ fn evaluate_expr_type(expr: &Expr, table_names_from_select:Vec<String>, all_tabl
 
                 _ => Type { base_type: BaseType::Null, nullable: false }
             }
-        }
+        },
 
         // Nested expression e.g. (foo > bar) or (1)
         Expr::Nested(inner_expr) => evaluate_expr_type(inner_expr, table_names_from_select, all_tables),
@@ -203,15 +210,10 @@ fn evaluate_expr_type(expr: &Expr, table_names_from_select:Vec<String>, all_tabl
 
                 _ => panic!("Datatype CAST Not supported by sqlite")
             }
-        }
+        },
 
-    //     Most aggregates (like SUM, MIN, MAX, AVG) return NULL if the input set is empty. However, COUNT is special.
 
-    // COUNT(*): Returns 0 if empty.
-
-    // COUNT(column): Returns 0 if empty or all are null.
-
-    // COUNT(DISTINCT col): Returns 0 if empty.
+        
 // 3. Window Functions (Ranking)
 
 // Ranking functions generate new numbers based on row position. They cannot produce nulls.
@@ -225,21 +227,55 @@ fn evaluate_expr_type(expr: &Expr, table_names_from_select:Vec<String>, all_tabl
 //     NTILE()
 
 
-    //TODO functions
-        // Expr::Function(func) => {
-        //     let name = func.name.to_string().to_uppercase();
-        //     match name.as_str() {
-        //         "COUNT" => Type::Int,
-        //         "SUM" | "AVG" | "MIN" | "MAX" => {
-        //             // Usually depends on the argument type
-        //             let arg = &func.args[0]; // Simplify: get first arg
-        //             // You would recursively resolve the arg here
-        //             Type::Int
-        //         }
-        //         _ => Type { base_type: BaseType::Null, nullable: false },
-        //     }
-        // }
+        // Aggregate functions 
+        Expr::Function(func) => {
+            let name = func.name.to_string().to_uppercase();
+            match name.as_str() {
+                "COUNT" => Type {
+                    base_type: BaseType::Integer,
+                    nullable: false, // COUNT always returns a number (0 if empty), never NULL
+                },
+                "SUM" | "AVG" | "MIN" | "MAX" => {
+                    let arg = &func.args;
 
+                    // closure
+                    let get_arg_type = || -> Type {
+                        if let FunctionArguments::List(list) = arg
+                            && let Some(func_arg) = list.args.first()
+                                && let FunctionArg::Unnamed(FunctionArgExpr::Expr(expr)) = func_arg {
+                                    return evaluate_expr_type(expr, table_names_from_select, all_tables);
+                                }
+                        Type { base_type: BaseType::Null, nullable: true }
+                    };
+
+                    let input_type = get_arg_type();
+
+                    match name.as_str() {
+                        // AVG always produces Real
+                        "AVG" => Type {
+                            base_type: BaseType::Real,
+                            nullable: true, 
+                        },
+                        
+                        "SUM" => Type {
+                            base_type: input_type.base_type, 
+                            nullable: true, 
+                        },
+                        
+                        "MIN" | "MAX" => Type {
+                            base_type: input_type.base_type,
+                            nullable: true, 
+                        },
+                        _ => unreachable!(),
+                    }
+                }
+                _ => Type {
+                    base_type: BaseType::Null,
+                    nullable: false,
+                },
+            }
+        },
+    
         _ => Type { base_type: BaseType::Null, nullable: false },
     }
 }
