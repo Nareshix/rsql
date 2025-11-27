@@ -29,24 +29,24 @@ pub fn get_types_from_select(
     {
         for item in &select.projection {
             match item {
-                // SELECT column_name OR SELECT count(*)
+                // SELECT column_name OR SELECT count(*) and other aggregate fns
                 SelectItem::UnnamedExpr(expr) => {
                     let t = evaluate_expr_type(expr, table_names_from_select.clone(), all_tables);
                     column_types.push(t);
                 }
 
-                // Case: SELECT column_name AS alias
+                // SELECT column_name AS alias
                 SelectItem::ExprWithAlias { expr, alias: _ } => {
                     let t = evaluate_expr_type(expr, table_names_from_select.clone(), all_tables);
                     column_types.push(t);
                 }
 
-                // Case: SELECT *
+                // SELECT *
                 SelectItem::Wildcard(_options) => {
                     todo!();
                 }
 
-                // Case: SELECT users.*
+                // SELECT users.*
                 SelectItem::QualifiedWildcard(object_name, _options) => {
                     todo!();
                 }
