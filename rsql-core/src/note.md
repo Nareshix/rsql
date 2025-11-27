@@ -47,3 +47,53 @@ consider prepare_v3 with SQLITE_PREPARE_DONT_LOG and SQLITE_PREPARE_PERSISTENT f
 consider using a vector instead of hashmap. realistically an app usulaly wouldnt have that many cached statements in the first place
 
 consider SQLITE_STATIC instead of  SQLITE_TRANSIENT in ToSql
+
+
+
+5. Conditional Certainties (Depends on Inputs)
+
+These operators are non-nullable only if specific conditions are met regarding their arguments.
+A. COALESCE / IFNULL
+
+COALESCE(a, b, c) returns the first non-null value.
+
+    Rule: The result is nullable: false if at least one of the arguments is known to be non-nullable.
+
+    Example: COALESCE(nullable_column, 0) -> Never Null.
+
+B. Comparison Operators (=, >, <, etc.)
+
+    Rule: Result is nullable: false if and only if both Left and Right sides are nullable: false.
+
+    Example: non_null_col > 5 -> Never Null.
+
+    Counter-Example: nullable_col > 5 -> Nullable (because NULL > 5 is NULL).
+
+C. CASE Expressions
+code SQL
+
+    
+CASE 
+    WHEN condition THEN result_a 
+    ELSE result_b 
+END
+
+  
+
+    Rule: Result is nullable: false if:
+
+        An ELSE branch exists.
+
+        AND result_b (the else) is non-nullable.
+
+        AND all THEN results (result_a, etc.) are non-nullable.
+
+    Note: If ELSE is missing, SQL defaults to ELSE NULL, so it becomes nullable.
+
+D. CAST
+
+CAST(x AS T)
+
+    Rule: Result is nullable: false if x is non-nullable.
+
+    Caveat: In some engines (like BigQuery SAFE_CAST or Postgres try_cast), a cast failure returns NULL. For standard CAST, if the input implies a valid value, the output is non-null.
