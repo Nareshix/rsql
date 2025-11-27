@@ -3,7 +3,7 @@ pub fn add(left: u64, right: u64) -> u64 {
 }
 
 mod expr;
-mod select_result_type;
+mod select_patterns;
 mod table;
 
 #[cfg(test)]
@@ -23,17 +23,26 @@ mod tests {
         let columns = vec![
             ColumnInfo {
                 name: "id".to_string(),
-                data_type: Type { base_type: BaseType::Integer, nullable: false },
+                data_type: Type {
+                    base_type: BaseType::Integer,
+                    nullable: false,
+                },
                 check_constraint: None,
             },
             ColumnInfo {
                 name: "name".to_string(),
-                data_type: Type { base_type: BaseType::Text, nullable: false },
+                data_type: Type {
+                    base_type: BaseType::Text,
+                    nullable: false,
+                },
                 check_constraint: None,
             },
             ColumnInfo {
                 name: "wow".to_string(),
-                data_type: Type { base_type: BaseType::Real, nullable: false },
+                data_type: Type {
+                    base_type: BaseType::Real,
+                    nullable: false,
+                },
                 check_constraint: None,
             },
         ];
