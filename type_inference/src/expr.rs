@@ -42,7 +42,7 @@ fn derive_math_type(left: Type, right: Type) -> Type {
     }
 }
 
-fn evaluate_expr_type(
+pub fn evaluate_expr_type(
     expr: &Expr,
     table_names_from_select: Vec<String>,
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
