@@ -51,7 +51,7 @@ fn evaluate_expr_type(
 
         // ident can be either col name or table name, but for our use case only focus on col name
         // We are assuming that there will strictly be one table only. If one is using more than 1 table.
-        // he should be more explicit (compile time check) and would be handled in CompoundIdentifier. 
+        // he should be more explicit (compile time check) and would be handled in CompoundIdentifier.
         Expr::Identifier(ident) => {
             // TODO, span can possibly be used for better error handlin due to showing where the error is. keep that in mind
             let table_name = &table_names_from_select[0];
@@ -79,20 +79,20 @@ fn evaluate_expr_type(
             }
             panic!("multiple identifier not found in tables.")
         },
- 
-   
+
+
         // Raw Values e.g. SELECT 1 or SELECT "hello"
         Expr::Value(val) =>{
-            
+
             // identifies whether its a float or int
             let numeral = &val.value;
              match numeral {
                 Value::Number(num, _) => {
                     if num.contains("."){
-                        return Type { base_type: BaseType::Real, nullable: false } 
+                        return Type { base_type: BaseType::Real, nullable: false }
                     }
                     Type { base_type: BaseType::Integer, nullable: false }
-                } 
+                }
                 Value::SingleQuotedString(_) => Type { base_type: BaseType::Text, nullable: false },
                 Value::DoubleQuotedString(_) => Type { base_type: BaseType::Text, nullable: false },
                 Value::Boolean(_) => Type { base_type: BaseType::Bool, nullable: false },
@@ -100,10 +100,10 @@ fn evaluate_expr_type(
                 Value::Placeholder(_) => todo!(),
 
                 _ => Type { base_type: BaseType::Null, nullable: false },
-            
+
         }
         },
-        
+
         // these always return a bool, regardless of input.
         Expr::IsNull(_)
         | Expr::IsNotNull(_)
@@ -152,7 +152,7 @@ fn evaluate_expr_type(
                 BinaryOperator::StringConcat => Type { base_type: BaseType::Text, nullable: true },
 
                 // TODO bitwise operation in BinaryOperator
-                // TODO REGEXP. it is sqlite specific                
+                // TODO REGEXP. it is sqlite specific
 
                 _ => Type { base_type: BaseType::Null, nullable: false },
             }
@@ -163,7 +163,7 @@ fn evaluate_expr_type(
             match op {
 
             // +, -
-            sqlparser::ast::UnaryOperator::Plus 
+            sqlparser::ast::UnaryOperator::Plus
             | sqlparser::ast::UnaryOperator::Minus => evaluate_expr_type(expr, table_names_from_select, all_tables),
 
             // <NOT> always returns Bool
@@ -215,7 +215,7 @@ fn evaluate_expr_type(
         },
 
 
-        
+
 // 3. Window Functions (Ranking) TODO sqlite core, math and date also TODO
 
 // Ranking functions generate new numbers based on row position. They cannot produce nulls.
@@ -229,7 +229,7 @@ fn evaluate_expr_type(
 //     NTILE()
 
 
-        // Aggregate functions 
+        // Aggregate functions
         Expr::Function(func) => {
             let name = func.name.to_string().to_uppercase();
             match name.as_str() {
@@ -256,17 +256,17 @@ fn evaluate_expr_type(
                         // AVG always produces Real
                         "AVG" => Type {
                             base_type: BaseType::Real,
-                            nullable: true, 
+                            nullable: true,
                         },
-                        
+
                         "SUM" => Type {
-                            base_type: input_type.base_type, 
-                            nullable: true, 
+                            base_type: input_type.base_type,
+                            nullable: true,
                         },
-                        
+
                         "MIN" | "MAX" => Type {
                             base_type: input_type.base_type,
-                            nullable: true, 
+                            nullable: true,
                         },
                         _ => unreachable!(),
                     }
@@ -277,7 +277,7 @@ fn evaluate_expr_type(
                 },
             }
         },
-    
+
         _ => Type { base_type: BaseType::Null, nullable: false },
     }
 }
