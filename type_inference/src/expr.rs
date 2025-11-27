@@ -1,126 +1,76 @@
 use std::collections::HashMap;
 
-use sqlparser::{
-    ast::{
-        BinaryOperator, Expr, SelectItem, SelectItemQualifiedWildcardKind, SetExpr, Statement,
-        TableFactor, Value,
-    },
-    dialect::SQLiteDialect,
-    parser::Parser,
-};
+use sqlparser::ast::{
+        BinaryOperator, DataType, Expr, Value
+    };
 
-use crate::table::FieldInfo;
+use crate::table::{ColumnInfo};
 // TODO, need to handle cases when it can be NULL
 #[derive(Debug, Clone, PartialEq)]
-pub enum Type {
-    Int,
-    Float,
+pub enum BaseType {
+    Integer,
+    Real,
     Bool,
-    String,
+    Text,
     Null,
     /// unable to infer
     Unknown,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Type {
+    pub base_type: BaseType,
+    /// true if theres a chance of it being null, else false
+    pub nullable: bool
+}
+
 /// if either type is a float, returns **Float**. Or else, it returns **Int**
 fn derive_math_type(left: Type, right: Type) -> Type {
-    if left == Type::Float || right == Type::Float {
-        return Type::Float;
-    }
-    Type::Int
-}
+    let nullable = left.nullable || right.nullable;
 
-pub fn get_type_of_columns_from_select(
-    sql: &str,
-    tables: &HashMap<String, Vec<FieldInfo>>,
-) -> Vec<Type> {
-    let statements = Parser::parse_sql(&SQLiteDialect {}, sql).unwrap();
-    let select = match statements.first() {
-        Some(Statement::Query(q)) => match &*q.body {
-            SetExpr::Select(s) => s,
-            _ => panic!("Query body is not a SELECT"),
-        },
-        _ => panic!("Not a SELECT statement"),
+    let base = match (&left.base_type, &right.base_type) {
+        (BaseType::Null, _) | (_, BaseType::Null) => BaseType::Null, 
+        (BaseType::Real, _) | (_, BaseType::Real) => BaseType::Real,
+        (BaseType::Integer, BaseType::Integer) => BaseType::Integer,
+        _ => BaseType::Null,
     };
 
-    // 2. Identify tables in scope
-    let table_names: Vec<String> = select
-        .from
-        .iter()
-        .flat_map(|t| std::iter::once(&t.relation).chain(t.joins.iter().map(|j| &j.relation)))
-        .filter_map(|rel| match rel {
-            TableFactor::Table { name, .. } => Some(name.to_string()),
-            _ => None,
-        })
-        .collect();
 
-    // Create the context for infer_type
-    let active_tables: HashMap<String, Vec<FieldInfo>> = table_names
-        .iter()
-        .filter_map(|name| tables.get(name).map(|cols| (name.clone(), cols.clone())))
-        .collect();
-
-    select
-        .projection
-        .iter()
-        .flat_map(|item| -> Vec<Type> {
-            match item {
-                // Combine both expression cases
-                SelectItem::UnnamedExpr(expr) | SelectItem::ExprWithAlias { expr, .. } => {
-                    vec![infer_type(expr, &active_tables)]
-                }
-                // Handle SELECT * (Must iterate table_names to preserve column order)
-                SelectItem::Wildcard(_) => table_names
-                    .iter()
-                    .filter_map(|name| tables.get(name))
-                    .flat_map(|cols| cols.iter().map(|c| c.data_type.clone()))
-                    .collect(),
-                // Handle SELECT table.*
-                SelectItem::QualifiedWildcard(
-                    SelectItemQualifiedWildcardKind::ObjectName(obj),
-                    _,
-                ) => tables
-                    .get(&obj.to_string())
-                    .map(|cols| cols.iter().map(|c| c.data_type.clone()).collect())
-                    .unwrap_or_default(),
-                _ => panic!("asd"),
-            }
-        })
-        .collect()
+    Type { base_type: base, nullable }
 }
 
-fn infer_type(expr: &Expr, tables: &HashMap<String, Vec<FieldInfo>>) -> Type {
 
+fn evaluate_expr_type(expr: &Expr, table_names_from_select:Vec<String>, all_tables: &HashMap<String, Vec<ColumnInfo>>) -> Type {
     match expr {
-        
+        // ident can be either col name or table name, but for our use case only focus on col name
         Expr::Identifier(ident) => {
+            // TODO, span can possibly be used for better error handlin due to showing where the error is. keep that in mind
+            let table_name = &table_names_from_select[0];
             let col_name = &ident.value;
-            for columns in tables.values() {
-                for col in columns {
-                    if col.name == *col_name {
-                        return col.data_type.clone();
-                    }
+            let column_infos = &all_tables[table_name];
+
+            for column_info in column_infos {
+                if column_info.name == *col_name {
+                    return column_info.data_type.clone()
                 }
-    }
-            Type::Unknown 
+            }
+            panic!("single identifier not found in tables.")
         },
 
         Expr::CompoundIdentifier(idents) => {
-            // We expect at least 2 parts, e.g., "table.column"
-            if idents.len() >= 2 {
-                let col_name = &idents[idents.len() - 1].value;
-                let table_name = &idents[idents.len() - 2].value;
+            // We expect 2 parts, e.g., "table.column"
+            let col_name = &idents[0].value;
+            let table_name = &idents[1].value;
 
-                if let Some(columns) = tables.get(table_name) {
-                    for col in columns {
-                        if col.name == *col_name {
-                            return col.data_type.clone();
-                        }
-                    }
+            let column_infos = &all_tables[table_name];
+            for column_info in column_infos {
+                if column_info.name == *col_name {
+                    return column_info.data_type.clone()
                 }
             }
-            Type::Unknown
+            panic!("multiple identifier not found in tables.")
         },
+ 
 
         
         // Raw Values e.g. SELECT 1 or SELECT "hello"
@@ -130,19 +80,18 @@ fn infer_type(expr: &Expr, tables: &HashMap<String, Vec<FieldInfo>>) -> Type {
             let numeral = &val.value;
              match numeral {
                 Value::Number(num, _) => {
-                    // TODO scientific notation
                     if num.contains("."){
-                        return Type::Float
+                        return Type { base_type: BaseType::Real, nullable: false } 
                     }
-                    Type::Int
+                    Type { base_type: BaseType::Integer, nullable: false }
                 } 
-                Value::SingleQuotedString(_) => Type::String,
-                Value::DoubleQuotedString(_) => Type::String,
-                Value::Boolean(_) => Type::Bool,
-                Value::Null => Type::Null,
+                Value::SingleQuotedString(_) => Type { base_type: BaseType::Text, nullable: false },
+                Value::DoubleQuotedString(_) => Type { base_type: BaseType::Text, nullable: false },
+                Value::Boolean(_) => Type { base_type: BaseType::Bool, nullable: false },
+                Value::Null => Type { base_type: BaseType::Null, nullable: false },
                 Value::Placeholder(_) => todo!(),
 
-                _ => Type::Unknown,
+                _ => Type { base_type: BaseType::Null, nullable: false },
             
         }
     }
@@ -158,20 +107,20 @@ fn infer_type(expr: &Expr, tables: &HashMap<String, Vec<FieldInfo>>) -> Type {
         | Expr::IsNormalized {..} // i dont think sqlite has TODO
         | Expr::IsUnknown(..) // i dont think sqlite has TODO
         | Expr::IsNotUnknown(..) // i dont think sqlite has TODO
-        | Expr::InSubquery { .. }
-        | Expr::InUnnest { .. } // i dont think sqlite has TODO
-        | Expr::Exists { .. }
-        // ---
-        |Expr::Like { .. }
-        | Expr::SimilarTo { .. } // TODO does qlite support
+        | Expr::Exists { .. } => Type { base_type: BaseType::Bool, nullable: false },
+
+        Expr::Like { .. }
+        | Expr::SimilarTo { .. } // TODO does sqlite support
         | Expr::Between { .. }
         | Expr::InList { .. }
         | Expr::AnyOp { .. }
-        | Expr::AllOp {.. } => Type::Bool,
+        | Expr::InSubquery { .. }
+        | Expr::InUnnest { .. } // i dont think sqlite has TODO
+        | Expr::AllOp {.. } => Type { base_type: BaseType::Bool, nullable: true },
 
         Expr::BinaryOp { left, op, right } => {
-            let left_type = infer_type(left, tables);
-            let right_type = infer_type(right, tables);
+            let left_type = evaluate_expr_type(left, table_names_from_select.clone(), all_tables);
+            let right_type = evaluate_expr_type(right, table_names_from_select, all_tables);
 
             match op {
                 // Comparisons always return Bool
@@ -182,7 +131,7 @@ fn infer_type(expr: &Expr, tables: &HashMap<String, Vec<FieldInfo>>) -> Type {
                 | BinaryOperator::GtEq
                 | BinaryOperator::LtEq
                 | BinaryOperator::And
-                | BinaryOperator::Or => Type::Bool,
+                | BinaryOperator::Or => Type { base_type: BaseType::Bool, nullable: true },
 
                 BinaryOperator::Plus
                 | BinaryOperator::Minus
@@ -191,12 +140,12 @@ fn infer_type(expr: &Expr, tables: &HashMap<String, Vec<FieldInfo>>) -> Type {
                 | BinaryOperator::Divide => derive_math_type(left_type, right_type),
 
                 // String concat always returns string
-                BinaryOperator::StringConcat => Type::String,
+                BinaryOperator::StringConcat => Type { base_type: BaseType::Text, nullable: true },
 
                 // TODO bitwise operation in BinaryOperator
                 // TODO REGEXP. it is sqlite specific                
 
-                _ => Type::Unknown,
+                _ => Type { base_type: BaseType::Null, nullable: false },
             }
         }
 
@@ -206,42 +155,77 @@ fn infer_type(expr: &Expr, tables: &HashMap<String, Vec<FieldInfo>>) -> Type {
 
             // +, -
             sqlparser::ast::UnaryOperator::Plus 
-            | sqlparser::ast::UnaryOperator::Minus => infer_type(expr, tables),
+            | sqlparser::ast::UnaryOperator::Minus => evaluate_expr_type(expr, table_names_from_select, all_tables),
 
             // <NOT> always returns Bool
-            sqlparser::ast::UnaryOperator::Not => Type::Bool,
+            sqlparser::ast::UnaryOperator::Not => Type { base_type: BaseType::Bool, nullable: true },
 
-                _ => Type::Unknown
+                _ => Type { base_type: BaseType::Null, nullable: false }
             }
         }
 
         // Nested expression e.g. (foo > bar) or (1)
-        Expr::Nested(inner_expr) => infer_type(inner_expr, tables),
+        Expr::Nested(inner_expr) => evaluate_expr_type(inner_expr, table_names_from_select, all_tables),
 
         Expr::Cast { data_type, .. } => {
+            // http://www.sqlite.org/datatype3.html#affinity_name_examples
             match data_type {
-                sqlparser::ast::DataType::SmallInt(_) |
-                sqlparser::ast::DataType::Int(_) |
-                sqlparser::ast::DataType::Integer(_) |
-                sqlparser::ast::DataType::BigInt(_) |
-                sqlparser::ast::DataType::TinyInt(_) => Type::Int,
+                DataType::Int(_)
+                | DataType::Integer(_)
+                | DataType::TinyInt(_)
+                | DataType::SmallInt(_)
+                | DataType::MediumInt(_)
+                | DataType::BigInt(_)
+                | DataType::BigIntUnsigned(_)
+                | DataType::Int2(_)
+                | DataType::Int8(_) => Type { base_type: BaseType::Integer, nullable: true },
 
-                sqlparser::ast::DataType::Float(_) |
-                sqlparser::ast::DataType::Real |
-                sqlparser::ast::DataType::Double(_) | 
-                sqlparser::ast::DataType::DoublePrecision => Type::Float,
+                DataType::Character(_)
+                | DataType::Varchar(_)
+                | DataType::CharVarying(_)
+                | DataType::CharacterVarying(_)
+                // sqlparser does not have  NCHAR(55)
+                // sqlparser does not have  NATIVE CHARACTER(70)
+                | DataType::Nvarchar(_)
+                | DataType::Text
+                | DataType::Clob(_) => Type { base_type: BaseType::Text, nullable: true },
 
-                sqlparser::ast::DataType::Boolean => Type::Bool,
+                // TODO
+                // DataType::Blob(_) =>
 
-                sqlparser::ast::DataType::Text |
-                sqlparser::ast::DataType::String(_) |
-                sqlparser::ast::DataType::Varchar(_) | 
-                sqlparser::ast::DataType::Char(_) => Type::String,
+                DataType::Real
+                | DataType::Double(_)
+                | DataType::DoublePrecision
+                | DataType::Float(_) => Type { base_type: BaseType::Real, nullable: true },
 
-                _ => Type::Unknown,
+
+                // TODO Numeric
+
+                _ => panic!("Datatype CAST Not supported by sqlite")
             }
         }
-        //TODO functions
+
+    //     Most aggregates (like SUM, MIN, MAX, AVG) return NULL if the input set is empty. However, COUNT is special.
+
+    // COUNT(*): Returns 0 if empty.
+
+    // COUNT(column): Returns 0 if empty or all are null.
+
+    // COUNT(DISTINCT col): Returns 0 if empty.
+// 3. Window Functions (Ranking)
+
+// Ranking functions generate new numbers based on row position. They cannot produce nulls.
+
+//     ROW_NUMBER()
+
+//     RANK()
+
+//     DENSE_RANK()
+
+//     NTILE()
+
+
+    //TODO functions
         // Expr::Function(func) => {
         //     let name = func.name.to_string().to_uppercase();
         //     match name.as_str() {
@@ -252,10 +236,10 @@ fn infer_type(expr: &Expr, tables: &HashMap<String, Vec<FieldInfo>>) -> Type {
         //             // You would recursively resolve the arg here
         //             Type::Int
         //         }
-        //         _ => Type::Unknown,
+        //         _ => Type { base_type: BaseType::Null, nullable: false },
         //     }
         // }
 
-        _ => Type::Unknown,
+        _ => Type { base_type: BaseType::Null, nullable: false },
     }
 }
