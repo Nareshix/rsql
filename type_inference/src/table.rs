@@ -4,14 +4,14 @@ use sqlparser::ast::{ColumnOption, CreateTable, Query, SetExpr, Statement, Table
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 
-use crate::expr::Type;
+use crate::expr::{BaseType, Type};
 
 // use crate::expr::Type;
 
 // 1. The Structs
 #[derive(Debug, Clone, PartialEq)]
 #[allow(unused)]
-pub struct FieldInfo {
+pub struct ColumnInfo {
     pub name: String,
     pub data_type: Type,
     pub check_constraint: Option<String>,
@@ -19,35 +19,47 @@ pub struct FieldInfo {
 
 #[derive(Debug)]
 #[allow(unused)]
-pub struct TableSchema {
+struct Table {
     pub table_name: String,
-    pub fields: Vec<FieldInfo>,
+    pub columns: Vec<ColumnInfo>,
 }
 
 #[allow(unused)]
 fn convert_sqlite_to_rust_type(sql: String) -> Type {
     if sql == "TEXT" {
-        Type::String
+        Type {
+            base_type: BaseType::Text,
+            nullable: false,
+        }
     } else if sql == "INTEGER" {
-        Type::Int
+        Type {
+            base_type: BaseType::Integer,
+            nullable: false,
+        }
     } else if sql == "REAL" {
-        Type::Float
+        Type {
+            base_type: BaseType::Real,
+            nullable: false,
+        }
     } else {
-        Type::Null
+        Type {
+            base_type: BaseType::Null,
+            nullable: false,
+        }
     }
     // TODO bool
 }
 
 #[allow(unused)]
 /// parses the sql and creates an ast for table. then it  is inserted into the Hashmap.
-pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<FieldInfo>>) {
+pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
     let dialect = SQLiteDialect {};
     let ast = Parser::parse_sql(&dialect, sql).unwrap();
 
     let schema = if let Statement::CreateTable(CreateTable { name, columns, .. }) = &ast[0] {
-        TableSchema {
+        Table {
             table_name: name.to_string(),
-            fields: columns
+            columns: columns
                 .iter()
                 .map(|col| {
                     let mut check_expr = None;
@@ -60,7 +72,7 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<FieldInfo>>) {
                     }
 
                     let data_type = convert_sqlite_to_rust_type(col.data_type.to_string());
-                    FieldInfo {
+                    ColumnInfo {
                         name: col.name.value.clone(),
                         data_type,
                         check_constraint: check_expr,
@@ -71,9 +83,8 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<FieldInfo>>) {
     } else {
         panic!("Ensure that it is CREATE table"); //TODO
     };
-    tables.insert(schema.table_name, schema.fields);
+    tables.insert(schema.table_name, schema.columns);
 }
-
 
 #[allow(unused)]
 /// does not support ctes and subqueries
@@ -84,7 +95,6 @@ pub fn get_table_names(query: &Query) -> Vec<String> {
     if let SetExpr::Select(select) = &*query.body {
         // iterate over FROM clause
         for table_with_joins in &select.from {
-
             // Check the main table in the FROM clause
             extract_table(&table_with_joins.relation, &mut table_names);
 
@@ -107,8 +117,10 @@ fn extract_table(relation: &TableFactor, table_names: &mut Vec<String>) {
         // FROM (SELECT ...), ignore subqueries
         TableFactor::Derived { .. } => {}
 
-        // Handle nested joins 
-        TableFactor::NestedJoin{table_with_joins, ..} => {
+        // Handle nested joins
+        TableFactor::NestedJoin {
+            table_with_joins, ..
+        } => {
             extract_table(&table_with_joins.relation, table_names);
             // handles flatteed joins
             for join in &table_with_joins.joins {
@@ -118,8 +130,6 @@ fn extract_table(relation: &TableFactor, table_names: &mut Vec<String>) {
         _ => {}
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -151,12 +161,14 @@ mod tests {
     #[test]
     fn test_standard_joins() {
         // Handles "FROM A JOIN B JOIN C"
-        let tables = extract("
+        let tables = extract(
+            "
             SELECT * 
             FROM users 
             JOIN orders ON users.id = orders.uid
             LEFT JOIN items ON orders.id = items.oid
-        ");
+        ",
+        );
         assert_eq!(tables, vec!["users", "orders", "items"]);
     }
 
@@ -185,7 +197,6 @@ mod tests {
         assert_eq!(tables, vec!["users"]);
     }
 
-
     #[test]
     fn test_nested_joins() {
         // Handles parentheses: FROM (A JOIN B)
@@ -207,10 +218,21 @@ mod tests {
                  (SELECT * FROM d) as sub
         ";
         let tables = extract(sql);
-        
+
         // 'a' comes from first comma part
         // 'b', 'c' come from the nested join
         // 'd' is ignored because it is inside a derived table (subquery)
         assert_eq!(tables, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn test_outer_join() {
+        let sql = "SELECT Customers.CustomerName, Orders.OrderID
+                        FROM Customers
+                        FULL OUTER JOIN Orders ON Customers.CustomerID=Orders.CustomerID
+                        ORDER BY Customers.CustomerName;
+                        ";
+        let tables = extract(sql);
+        assert_eq!(tables, vec!["Customers", "Orders"])
     }
 }
