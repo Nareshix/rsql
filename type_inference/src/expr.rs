@@ -216,7 +216,7 @@ fn evaluate_expr_type(
 
 
         
-// 3. Window Functions (Ranking) TODO sqlite core also TODO
+// 3. Window Functions (Ranking) TODO sqlite core, math and date also TODO
 
 // Ranking functions generate new numbers based on row position. They cannot produce nulls.
 
