@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use sqlparser::ast::{ColumnOption, CreateTable, Query, SetExpr, Statement, TableFactor};
+use sqlparser::ast::{ColumnOption, CreateTable, SetExpr, Statement, TableFactor};
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 
@@ -88,24 +88,31 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
 
 #[allow(unused)]
 /// does not support ctes and subqueries
-pub fn get_table_names(query: &Query) -> Vec<String> {
-    let mut table_names = Vec::new();
+pub fn get_table_names(sql: &str) -> Vec<String> {
+    let dialect = SQLiteDialect {};
+    let ast = Parser::parse_sql(&dialect, sql).unwrap();
+    let stmt = &ast[0];
 
-    // ignore  query.with (CTEs)
-    if let SetExpr::Select(select) = &*query.body {
-        // iterate over FROM clause
-        for table_with_joins in &select.from {
-            // Check the main table in the FROM clause
-            extract_table(&table_with_joins.relation, &mut table_names);
+    if let Statement::Query(query) = stmt {
+        let mut table_names = Vec::new();
 
-            // Iterate over any JOINs attached to this table
-            for join in &table_with_joins.joins {
-                extract_table(&join.relation, &mut table_names);
+        // ignore  query.with (CTEs)
+        if let SetExpr::Select(select) = &*query.body {
+            for table_with_joins in &select.from {
+               // Check the main table in the FROM clause
+                extract_table(&table_with_joins.relation, &mut table_names);
+
+                // Iterate over any JOINs attached to this table
+                for join in &table_with_joins.joins {
+                    extract_table(&join.relation, &mut table_names);
+                }
             }
         }
-    }
 
-    table_names
+        table_names
+    } else {
+        panic!("omg")
+    }
 }
 
 fn extract_table(relation: &TableFactor, table_names: &mut Vec<String>) {
@@ -163,8 +170,8 @@ mod tests {
         // Handles "FROM A JOIN B JOIN C"
         let tables = extract(
             "
-            SELECT * 
-            FROM users 
+            SELECT *
+            FROM users
             JOIN orders ON users.id = orders.uid
             LEFT JOIN items ON orders.id = items.oid
         ",
@@ -177,7 +184,7 @@ mod tests {
         // Should NOT find "cte_table"
         // Should find "real_table"
         let sql = "
-            WITH cte_table AS (SELECT * FROM hidden) 
+            WITH cte_table AS (SELECT * FROM hidden)
             SELECT * FROM real_table
         ";
         let tables = extract(sql);
@@ -189,8 +196,8 @@ mod tests {
         // Should NOT find "hidden" inside the subquery
         // Should find "users"
         let sql = "
-            SELECT * 
-            FROM users 
+            SELECT *
+            FROM users
             JOIN (SELECT * FROM hidden) AS sub ON sub.id = users.id
         ";
         let tables = extract(sql);
@@ -212,9 +219,9 @@ mod tests {
         // 2. Nested Join
         // 3. Subquery (ignored)
         let sql = "
-            SELECT * 
-            FROM a, 
-                 (b JOIN c ON b.id = c.id), 
+            SELECT *
+            FROM a,
+                 (b JOIN c ON b.id = c.id),
                  (SELECT * FROM d) as sub
         ";
         let tables = extract(sql);
