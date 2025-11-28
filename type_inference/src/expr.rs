@@ -179,6 +179,7 @@ pub fn evaluate_expr_type(
                 | BinaryOperator::Modulo
                 | BinaryOperator::Divide => {
 
+                    // division and mod can result in NULL (when divided/mod by 0)
                     let nullable = if *op == BinaryOperator::Divide || *op == BinaryOperator::Modulo {
                         true
                     } else {
@@ -227,8 +228,7 @@ pub fn evaluate_expr_type(
             sqlparser::ast::UnaryOperator::Plus
             | sqlparser::ast::UnaryOperator::Minus => evaluate_expr_type(expr, table_names_from_select, all_tables),
 
-            // <NOT> always returns Bool
-            sqlparser::ast::UnaryOperator::Not => Ok(Type { base_type: BaseType::Bool, nullable: true }),
+            sqlparser::ast::UnaryOperator::Not => evaluate_expr_type(expr, table_names_from_select, all_tables),
 
                 _ => Err(format!("invalid {expr}"))
             }
