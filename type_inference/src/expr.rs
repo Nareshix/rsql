@@ -24,26 +24,6 @@ pub struct Type {
     pub nullable: bool,
 }
 
-#[allow(unused)]
-/// if either type is a float, returns **Float**. Or else, it returns **Int**. If garbage input in return unknown
-fn derive_math_type(left: Type, right: Type) -> Type {
-    let nullable = left.nullable || right.nullable;
-
-    let base = match (&left.base_type, &right.base_type) {
-        (BaseType::Null, _) | (_, BaseType::Null) => BaseType::Null,
-        // Only allow numeric combinations
-        (BaseType::Real, BaseType::Real)
-        | (BaseType::Real, BaseType::Integer)
-        | (BaseType::Integer, BaseType::Real) => BaseType::Real,
-        (BaseType::Integer, BaseType::Integer) => BaseType::Integer,
-        _ => BaseType::Unknown,
-    };
-
-    Type {
-        base_type: base,
-        nullable,
-    }
-}
 /// https://docs.rs/sqlparser/latest/sqlparser/ast/enum.Expr.html, version 0.59.0
 ///
 /// we will patern match all 63 (yep...). Some of them are not supported by sqlite so they will be skipped and commented.
@@ -193,7 +173,24 @@ pub fn evaluate_expr_type(
                 | BinaryOperator::Minus
                 | BinaryOperator::Multiply
                 | BinaryOperator::Modulo
-                | BinaryOperator::Divide => derive_math_type(left_type, right_type),
+                | BinaryOperator::Divide => {
+                    let nullable = left_type.nullable || right_type.nullable;
+
+                    let base = match (&left_type.base_type, &right_type.base_type) {
+                        (BaseType::Null, _) | (_, BaseType::Null) => BaseType::Null,
+                        // Only allow numeric combinations
+                        (BaseType::Real, BaseType::Real)
+                        | (BaseType::Real, BaseType::Integer)
+                        | (BaseType::Integer, BaseType::Real) => BaseType::Real,
+                        (BaseType::Integer, BaseType::Integer) => BaseType::Integer,
+                        _ => BaseType::Unknown,
+                    };
+
+                    Type {
+                        base_type: base,
+                        nullable,
+                    }
+                },
 
                 // String concat always returns string
                 BinaryOperator::StringConcat => Type { base_type: BaseType::Text, nullable: true },
