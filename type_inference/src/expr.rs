@@ -13,7 +13,7 @@ pub enum BaseType {
     Bool,
     Text,
     Null,
-    /// unable to infer
+    /// unable to infer and generally dont care about nullabilty
     Unknown,
 }
 
@@ -33,7 +33,7 @@ fn derive_math_type(left: Type, right: Type) -> Type {
         (BaseType::Null, _) | (_, BaseType::Null) => BaseType::Null,
         (BaseType::Real, _) | (_, BaseType::Real) => BaseType::Real,
         (BaseType::Integer, BaseType::Integer) => BaseType::Integer,
-        _ => BaseType::Null,
+        _ => BaseType::Unknown,
     };
 
     Type {
@@ -124,7 +124,7 @@ pub fn evaluate_expr_type(
                 Value::Null => Type { base_type: BaseType::Null, nullable: false },
                 Value::Placeholder(_) => todo!(),
 
-                _ => Type { base_type: BaseType::Null, nullable: false },
+                _ => Type { base_type: BaseType::Unknown, nullable: false },
 
         }
         },
@@ -181,7 +181,7 @@ pub fn evaluate_expr_type(
                 // TODO bitwise operation in BinaryOperator
                 // TODO REGEXP. it is sqlite specific
 
-                _ => Type { base_type: BaseType::Null, nullable: false },
+                _ => Type { base_type: BaseType::Unknown, nullable: false },
             }
         },
 
@@ -196,7 +196,7 @@ pub fn evaluate_expr_type(
             // <NOT> always returns Bool
             sqlparser::ast::UnaryOperator::Not => Type { base_type: BaseType::Bool, nullable: true },
 
-                _ => Type { base_type: BaseType::Null, nullable: false }
+                _ => Type { base_type: BaseType::Unknown, nullable: false }
             }
         },
 
@@ -260,7 +260,7 @@ pub fn evaluate_expr_type(
         Expr::Function(func) => {
             let name = func.name.to_string().to_uppercase();
 
-            let mut input_type = Type { base_type: BaseType::Null, nullable: false };
+            let mut input_type = Type { base_type: BaseType::Unknown, nullable: false };
             let mut any_arg_nullable = false;
             let mut all_args_nullable = true; // track for COALESCE and ifnull
 
@@ -431,7 +431,7 @@ pub fn evaluate_expr_type(
             },
 
                 _ => Type {
-                    base_type: BaseType::Null,
+                    base_type: BaseType::Unknown,
                     nullable: true
                 },
             }
@@ -459,6 +459,6 @@ pub fn evaluate_expr_type(
             evaluate_expr_type(expr, table_names_from_select, all_tables)
         }
 
-        _ => Type { base_type: BaseType::Null, nullable: false },
+        _ => Type { base_type: BaseType::Unknown, nullable: false },
     }
 }
