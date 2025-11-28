@@ -391,6 +391,26 @@ pub fn evaluate_expr_type(
                     nullable: any_arg_nullable
                 },
 
+
+                // --- DateTime functions ---
+                // Returns NULL if date format is invalid
+
+                "DATE" | "TIME" | "DATETIME" | "STRFTIME" | "TIMEDIFF" => Type {
+                    base_type: BaseType::Text,
+                    nullable: true
+                },
+
+                "JULIANDAY" => Type {
+                    base_type: BaseType::Real,
+                    nullable: true
+                },
+
+                "UNIXEPOCH" => Type {
+                    base_type: BaseType::Integer,
+                    nullable: true
+                },
+
+
                 _ => Type {
                     base_type: BaseType::Null,
                     nullable: true
