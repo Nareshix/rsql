@@ -104,7 +104,7 @@ pub fn evaluate_expr_type(
                 Value::SingleQuotedString(_) => Ok(Type { base_type: BaseType::Text, nullable: false }),
                 Value::DoubleQuotedString(_) => Ok(Type { base_type: BaseType::Text, nullable: false }),
                 Value::Boolean(_) => Ok(Type { base_type: BaseType::Bool, nullable: false }),
-                Value::Null => Ok(Type { base_type: BaseType::Null, nullable: false }),
+                Value::Null => Ok(Type { base_type: BaseType::Null, nullable: true }),
                 Value::Placeholder(_) => todo!(),
 
                 _ => Err(format!("{value} is an invalid type. Make sure it is TEXT, INTEGER or REAL"))
@@ -178,7 +178,13 @@ pub fn evaluate_expr_type(
                 | BinaryOperator::Multiply
                 | BinaryOperator::Modulo
                 | BinaryOperator::Divide => {
-                    let nullable = left_type.nullable || right_type.nullable;
+
+                    let nullable = if *op == BinaryOperator::Divide || *op == BinaryOperator::Modulo {
+                        true
+                    } else {
+                        left_type.nullable || right_type.nullable
+                    };
+
 
                     let base = match (&left_type.base_type, &right_type.base_type) {
                         (BaseType::Null, _) | (_, BaseType::Null) => BaseType::Null,
@@ -502,7 +508,7 @@ pub fn evaluate_expr_type(
         // TODO not too sure whether correct his part was geenrated by ai. pls come and check again.
 
     Expr::Case { conditions, else_result, .. } => {
-            let mut output_type = Type { base_type: BaseType::Null, nullable: false };
+            let mut output_type = Type { base_type: BaseType::Null, nullable: true };
 
             // 1. Collect all outcome types (THEN ... and ELSE ...)
             let mut result_types = Vec::new();
