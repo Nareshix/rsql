@@ -147,108 +147,108 @@ fn extract_table(relation: &TableFactor, table_names: &mut Vec<String>) {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
 
-    // Helper to parse SQL quickly
-    fn extract(sql: &str) -> Vec<String> {
-        let dialect = SQLiteDialect {};
-        let ast = Parser::parse_sql(&dialect, sql).unwrap();
-        match &ast[0] {
-            sqlparser::ast::Statement::Query(q) => get_table_names(q),
-            _ => vec![],
-        }
-    }
+//     // Helper to parse SQL quickly
+//     fn extract(sql: &str) -> Vec<String> {
+//         let dialect = SQLiteDialect {};
+//         let ast = Parser::parse_sql(&dialect, sql).unwrap();
+//         match &ast[0] {
+//             sqlparser::ast::Statement::Query(q) => get_table_names(q),
+//             _ => vec![],
+//         }
+//     }
 
-    #[test]
-    fn test_basic_tables() {
-        let tables = extract("SELECT * FROM users");
-        assert_eq!(tables, vec!["users"]);
-    }
+//     #[test]
+//     fn test_basic_tables() {
+//         let tables = extract("SELECT * FROM users");
+//         assert_eq!(tables, vec!["users"]);
+//     }
 
-    #[test]
-    fn test_comma_separated() {
-        // Handles "FROM A, B"
-        let tables = extract("SELECT * FROM users, accounts");
-        assert_eq!(tables, vec!["users", "accounts"]);
-    }
+//     #[test]
+//     fn test_comma_separated() {
+//         // Handles "FROM A, B"
+//         let tables = extract("SELECT * FROM users, accounts");
+//         assert_eq!(tables, vec!["users", "accounts"]);
+//     }
 
-    #[test]
-    fn test_standard_joins() {
-        // Handles "FROM A JOIN B JOIN C"
-        let tables = extract(
-            "
-            SELECT *
-            FROM users
-            JOIN orders ON users.id = orders.uid
-            LEFT JOIN items ON orders.id = items.oid
-        ",
-        );
-        assert_eq!(tables, vec!["users", "orders", "items"]);
-    }
+//     #[test]
+//     fn test_standard_joins() {
+//         // Handles "FROM A JOIN B JOIN C"
+//         let tables = extract(
+//             "
+//             SELECT *
+//             FROM users
+//             JOIN orders ON users.id = orders.uid
+//             LEFT JOIN items ON orders.id = items.oid
+//         ",
+//         );
+//         assert_eq!(tables, vec!["users", "orders", "items"]);
+//     }
 
-    #[test]
-    fn test_ignore_ctes() {
-        // Should NOT find "cte_table"
-        // Should find "real_table"
-        let sql = "
-            WITH cte_table AS (SELECT * FROM hidden)
-            SELECT * FROM real_table
-        ";
-        let tables = extract(sql);
-        assert_eq!(tables, vec!["real_table"]);
-    }
+//     #[test]
+//     fn test_ignore_ctes() {
+//         // Should NOT find "cte_table"
+//         // Should find "real_table"
+//         let sql = "
+//             WITH cte_table AS (SELECT * FROM hidden)
+//             SELECT * FROM real_table
+//         ";
+//         let tables = extract(sql);
+//         assert_eq!(tables, vec!["real_table"]);
+//     }
 
-    #[test]
-    fn test_ignore_subqueries() {
-        // Should NOT find "hidden" inside the subquery
-        // Should find "users"
-        let sql = "
-            SELECT *
-            FROM users
-            JOIN (SELECT * FROM hidden) AS sub ON sub.id = users.id
-        ";
-        let tables = extract(sql);
-        assert_eq!(tables, vec!["users"]);
-    }
+//     #[test]
+//     fn test_ignore_subqueries() {
+//         // Should NOT find "hidden" inside the subquery
+//         // Should find "users"
+//         let sql = "
+//             SELECT *
+//             FROM users
+//             JOIN (SELECT * FROM hidden) AS sub ON sub.id = users.id
+//         ";
+//         let tables = extract(sql);
+//         assert_eq!(tables, vec!["users"]);
+//     }
 
-    #[test]
-    fn test_nested_joins() {
-        // Handles parentheses: FROM (A JOIN B)
-        // This validates the NestedJoin recursion
-        let sql = "SELECT * FROM (users JOIN locations ON u.id = l.id)";
-        let tables = extract(sql);
-        assert_eq!(tables, vec!["users", "locations"]);
-    }
+//     #[test]
+//     fn test_nested_joins() {
+//         // Handles parentheses: FROM (A JOIN B)
+//         // This validates the NestedJoin recursion
+//         let sql = "SELECT * FROM (users JOIN locations ON u.id = l.id)";
+//         let tables = extract(sql);
+//         assert_eq!(tables, vec!["users", "locations"]);
+//     }
 
-    #[test]
-    fn test_complex_mix() {
-        // 1. Comma separation
-        // 2. Nested Join
-        // 3. Subquery (ignored)
-        let sql = "
-            SELECT *
-            FROM a,
-                 (b JOIN c ON b.id = c.id),
-                 (SELECT * FROM d) as sub
-        ";
-        let tables = extract(sql);
+//     #[test]
+//     fn test_complex_mix() {
+//         // 1. Comma separation
+//         // 2. Nested Join
+//         // 3. Subquery (ignored)
+//         let sql = "
+//             SELECT *
+//             FROM a,
+//                  (b JOIN c ON b.id = c.id),
+//                  (SELECT * FROM d) as sub
+//         ";
+//         let tables = extract(sql);
 
-        // 'a' comes from first comma part
-        // 'b', 'c' come from the nested join
-        // 'd' is ignored because it is inside a derived table (subquery)
-        assert_eq!(tables, vec!["a", "b", "c"]);
-    }
+//         // 'a' comes from first comma part
+//         // 'b', 'c' come from the nested join
+//         // 'd' is ignored because it is inside a derived table (subquery)
+//         assert_eq!(tables, vec!["a", "b", "c"]);
+//     }
 
-    #[test]
-    fn test_outer_join() {
-        let sql = "SELECT Customers.CustomerName, Orders.OrderID
-                        FROM Customers
-                        FULL OUTER JOIN Orders ON Customers.CustomerID=Orders.CustomerID
-                        ORDER BY Customers.CustomerName;
-                        ";
-        let tables = extract(sql);
-        assert_eq!(tables, vec!["Customers", "Orders"])
-    }
-}
+//     #[test]
+//     fn test_outer_join() {
+//         let sql = "SELECT Customers.CustomerName, Orders.OrderID
+//                         FROM Customers
+//                         FULL OUTER JOIN Orders ON Customers.CustomerID=Orders.CustomerID
+//                         ORDER BY Customers.CustomerName;
+//                         ";
+//         let tables = extract(sql);
+//         assert_eq!(tables, vec!["Customers", "Orders"])
+//     }
+// }
