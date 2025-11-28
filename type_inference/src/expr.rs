@@ -265,65 +265,143 @@ pub fn evaluate_expr_type(
         // Datetime
         // Expr::AtTimeZone {..}  TODO
 
-        // String functions (technically can be used for int and real. must give user flexibility in this case)
-        Expr::Substring { expr,.. } => {
-            evaluate_expr_type(expr, table_names_from_select, all_tables)
-        }
-        Expr::Trim { expr, .. } => {
-            evaluate_expr_type(expr, table_names_from_select, all_tables)
-        }
         // Expr::Extract {.. }   TODO use strftime() instead
         // Expr::Position { .. } TODO use instr
 
-
-        // Aggregate functions
+        // Functions
+        // https://sqlite.org/lang_corefunc.html
         Expr::Function(func) => {
             let name = func.name.to_string().to_uppercase();
-            match name.as_str() {
-                "COUNT" => Type {
-                    base_type: BaseType::Integer,
-                    nullable: false, // COUNT always returns a number (0 if empty), never NULL
-                },
-                "SUM" | "AVG" | "MIN" | "MAX" => {
-                    let arg = &func.args;
 
-                    // closure
-                    let get_arg_type = || -> Type {
-                        if let FunctionArguments::List(list) = arg
-                            && let Some(func_arg) = list.args.first()
-                                && let FunctionArg::Unnamed(FunctionArgExpr::Expr(expr)) = func_arg {
-                                    return evaluate_expr_type(expr, table_names_from_select, all_tables);
-                                }
-                        Type { base_type: BaseType::Null, nullable: false }
-                    };
+            let mut input_type = Type { base_type: BaseType::Null, nullable: false };
+            let mut any_arg_nullable = false;
+            let mut all_args_nullable = true; // track for COALESCE and ifnull
 
-                    let input_type = get_arg_type();
+            if let FunctionArguments::List(list) = &func.args {
+                for arg in &list.args {
+                    if let FunctionArg::Unnamed(FunctionArgExpr::Expr(expr)) = arg {
+                        let arg_type = evaluate_expr_type(expr, table_names_from_select.clone(), all_tables);
 
-                    match name.as_str() {
-                        // AVG always produces Real
-                        "AVG" => Type {
-                            base_type: BaseType::Real,
-                            nullable: input_type.nullable,
-                        },
+                        if arg_type.nullable {
+                            any_arg_nullable = true;
+                        } else {
+                            all_args_nullable = false; // Found a non-null arg
+                        }
 
-                        "SUM" => Type {
-                            base_type: input_type.base_type,
-                            nullable: input_type.nullable,
-                        },
-
-                        "MIN" | "MAX" => Type {
-                            base_type: input_type.base_type,
-                            nullable: input_type.nullable,
-                        },
-                        _ => unreachable!(),
+                        // Simple type coercion (Keep the first non-null/non-unknown type)
+                        if input_type.base_type == BaseType::Null && arg_type.base_type != BaseType::Null {
+                            input_type = arg_type;
+                        }
                     }
                 }
+            } else {
+                // Handle COUNT(*) or invalid args
+                // For COUNT(*), we assume input isn't nullable, effectively.
+                all_args_nullable = false;
+            }
+
+            match name.as_str() {
+                // ---- core sqlite section --------
+
+                "COUNT" => Type {
+                    base_type: BaseType::Integer,
+                    nullable: false // Correct: Count never returns NULL
+                },
+
+                "AVG" => Type {
+                    base_type: BaseType::Real,
+                    nullable: true // Correct: AVG([]) is NULL
+                },
+
+                "SUM" | "MIN" | "MAX" => Type {
+                    base_type: input_type.base_type,
+                    nullable: true // Correct: Aggregates on empty sets are NULL
+                },
+
+                // SQLite "TOTAL" is like SUM but returns 0.0 on empty set
+                "TOTAL" => Type {
+                    base_type: BaseType::Real,
+                    nullable: false
+                },
+
+                "RANDOM" => Type { base_type: BaseType::Integer, nullable: false },
+
+                // Standard NULL propagation
+                "LENGTH" | "OCTET_LENGTH" | "INSTR" | "UNICODE" |
+                "SIGN" | "GLOB" | "LIKE" | "ABS" | "ROUND" => Type {
+                    base_type: if name == "ROUND" { BaseType::Real } else { BaseType::Integer },
+                    nullable: any_arg_nullable
+                },
+
+                // String funcs
+                "LOWER" | "UPPER" | "LTRIM" | "RTRIM" | "TRIM" |
+                "REPLACE" | "SUBSTR" | "SUBSTRING" | "UNISTR" | "UNISTR_QUOTE" => Type {
+                    base_type: BaseType::Text,
+                    nullable: any_arg_nullable
+                },
+
+                "CONCAT" | "CONCAT_WS" => Type {
+                    base_type: BaseType::Text,
+                    nullable: false
+                },
+
+                //  COALESCE is only nullable if ALL args are nullable
+                "COALESCE" | "IFNULL" => Type {
+                    base_type: input_type.base_type,
+                    nullable: all_args_nullable
+                },
+
+
+                //-------MATH SECITON-------------
+
+                "PI" => Type {
+                    base_type: BaseType::Real,
+                    nullable: false // PI is never NULL
+                },
+
+
+                // NEVER return null as it is defined for ALL REAL numbers
+                "ASINH" | "ATAN" | "ATAN2" |
+                "COSH" | "SINH" | "TANH" |
+                "EXP" | "DEGREES" | "RADIANS" => Type {
+                    base_type: BaseType::Real,
+                    nullable: any_arg_nullable
+                },
+
+                // can return null cuz these functions are not definde for all real numbers
+                "ACOS" | "ACOSH" | "ASIN" | "ATANH" |
+                "COS" | "SIN" | "TAN" |
+                "LN" | "LOG" | "LOG10" | "LOG2" |
+                "POW" | "POWER" | "SQRT" => Type {
+                    base_type: BaseType::Real,
+                    nullable: true // Always True, because Math Errors = NULL
+                },
+
+
+                // i know ceil and floor wont go through but no harm adding it
+                "CEIL" | "CEILING" | "FLOOR" | "TRUNC" => Type {
+                    base_type: BaseType::Real,
+                    nullable: any_arg_nullable
+                },
+
+                // MOD(X,Y) returns the type of X/Y.
+                // If inputs are Int, result is Int. If inputs are Float, result is Float.
+                "MOD" => Type {
+                    base_type: input_type.base_type,
+                    nullable: any_arg_nullable
+                },
+
                 _ => Type {
                     base_type: BaseType::Null,
-                    nullable: false,
+                    nullable: true
                 },
             }
-        },
+        }
+
+
+
+        // Note: these are special functions that cannot be placed in the geenric Function expression due to how sqlparser works
+        // version 0.59.0
 
         // Math functions
         Expr::Ceil {expr, ..} => {
@@ -331,6 +409,14 @@ pub fn evaluate_expr_type(
         }
 
         Expr::Floor { expr, .. } => {
+            evaluate_expr_type(expr, table_names_from_select, all_tables)
+        }
+
+        // String functions (technically can be used for int and real. must give user flexibility in this case)
+        Expr::Substring { expr,.. } => {
+            evaluate_expr_type(expr, table_names_from_select, all_tables)
+        }
+        Expr::Trim { expr, .. } => {
             evaluate_expr_type(expr, table_names_from_select, all_tables)
         }
 
