@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::format};
 
 use sqlparser::ast::{
     BinaryOperator, DataType, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, Value,
@@ -13,8 +13,7 @@ pub enum BaseType {
     Bool,
     Text,
     Null,
-    /// unable to infer and generally dont care about nullabilty
-    Unknown,
+    Unknowns,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -31,7 +30,7 @@ pub fn evaluate_expr_type(
     expr: &Expr,
     table_names_from_select: Vec<String>,
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
-) -> Type {
+) -> Result<Type, String> {
     match expr {
 
         // ident can be either col name or table name, but for our use case only focus on col name
@@ -45,10 +44,11 @@ pub fn evaluate_expr_type(
 
             for column_info in column_infos {
                 if column_info.name == *col_name {
-                    return column_info.data_type.clone()
+                    return Ok(column_info.data_type.clone())
                 }
             }
-            Type { base_type: BaseType::Unknown, nullable: false }
+            Err(format!("Column '{}' not found in table '{}'", col_name, table_name))
+
         },
 
         Expr::CompoundIdentifier(idents) => {
@@ -59,10 +59,11 @@ pub fn evaluate_expr_type(
             let column_infos = &all_tables[table_name];
             for column_info in column_infos {
                 if column_info.name == *col_name {
-                    return column_info.data_type.clone()
+                    return Ok(column_info.data_type.clone())
                 }
             }
-            Type { base_type: BaseType::Unknown, nullable: false }
+            Err(format!("Column '{}' not found in table '{}'", col_name, table_name))
+
         },
 
         // Expr::CompoundFieldAccess {..}
@@ -92,21 +93,21 @@ pub fn evaluate_expr_type(
         Expr::Value(val) =>{
 
             // identifies whether its a float or int
-            let numeral = &val.value;
-             match numeral {
+            let value = &val.value;
+             match value {
                 Value::Number(num, _) => {
                     if num.contains("."){
-                        return Type { base_type: BaseType::Real, nullable: false }
+                        return Ok(Type { base_type: BaseType::Real, nullable: false })
                     }
-                    Type { base_type: BaseType::Integer, nullable: false }
+                    Ok(Type { base_type: BaseType::Integer, nullable: false })
                 }
-                Value::SingleQuotedString(_) => Type { base_type: BaseType::Text, nullable: false },
-                Value::DoubleQuotedString(_) => Type { base_type: BaseType::Text, nullable: false },
-                Value::Boolean(_) => Type { base_type: BaseType::Bool, nullable: false },
-                Value::Null => Type { base_type: BaseType::Null, nullable: false },
+                Value::SingleQuotedString(_) => Ok(Type { base_type: BaseType::Text, nullable: false }),
+                Value::DoubleQuotedString(_) => Ok(Type { base_type: BaseType::Text, nullable: false }),
+                Value::Boolean(_) => Ok(Type { base_type: BaseType::Bool, nullable: false }),
+                Value::Null => Ok(Type { base_type: BaseType::Null, nullable: false }),
                 Value::Placeholder(_) => todo!(),
 
-                _ => Type { base_type: BaseType::Unknown, nullable: false },
+                _ => Err(format!("{value} is an invalid type. Make sure it is TEXT, INTEGER or REAL"))
 
         }
         },
@@ -123,7 +124,7 @@ pub fn evaluate_expr_type(
         | Expr::IsNormalized {..} // i dont think sqlite has TODO
         | Expr::IsUnknown(..) // i dont think sqlite has TODO
         | Expr::IsNotUnknown(..) // i dont think sqlite has TODO
-        | Expr::Exists { .. } => Type { base_type: BaseType::Bool, nullable: false },
+        | Expr::Exists { .. } => Ok(Type { base_type: BaseType::Bool, nullable: false }),
 
         // Expr::ILike { .. }
         // Expr::RLike { .. }
@@ -134,11 +135,11 @@ pub fn evaluate_expr_type(
         | Expr::AnyOp { .. }
         | Expr::InSubquery { .. }
         | Expr::InUnnest { .. } // i dont think sqlite has TODO
-        | Expr::AllOp {.. } => Type { base_type: BaseType::Bool, nullable: true },
+        | Expr::AllOp {.. } => Ok(Type { base_type: BaseType::Bool, nullable: true }),
 
         Expr::BinaryOp { left, op, right } => {
-            let left_type = evaluate_expr_type(left, table_names_from_select.clone(), all_tables);
-            let right_type = evaluate_expr_type(right, table_names_from_select, all_tables);
+            let left_type = evaluate_expr_type(left, table_names_from_select.clone(), all_tables)?;
+            let right_type = evaluate_expr_type(right, table_names_from_select, all_tables)?;
 
             match op {
                 // Comparisons always return Bool
@@ -162,9 +163,12 @@ pub fn evaluate_expr_type(
                 };
 
                 if !is_compatible {
-                    Type { base_type: BaseType::Unknown, nullable: false }
+                        Err(format!(
+                            "Cannot compare Types  '{:?}' and '{:?}'.",
+                            left_type.base_type, right_type.base_type                        ))
+
                 } else {
-                    Type { base_type: BaseType::Bool, nullable: true }
+                    Ok(Type { base_type: BaseType::Bool, nullable: true })
                 }
 
                 },
@@ -183,22 +187,29 @@ pub fn evaluate_expr_type(
                         | (BaseType::Real, BaseType::Integer)
                         | (BaseType::Integer, BaseType::Real) => BaseType::Real,
                         (BaseType::Integer, BaseType::Integer) => BaseType::Integer,
-                        _ => BaseType::Unknown,
+                        _ => BaseType::Unknowns
                     };
 
-                    Type {
+                    if base == BaseType::Unknowns {
+                    return Err(format!("Cannot apply operator '{:?}' to types '{:?}' and '{:?}'. Arithmetic requires numeric types.",
+                            op, left_type.base_type, right_type.base_type
+                            //TODO left, right
+                        ))
+
+                    }
+                    Ok(Type {
                         base_type: base,
                         nullable,
-                    }
+                    })
                 },
 
                 // String concat always returns string
-                BinaryOperator::StringConcat => Type { base_type: BaseType::Text, nullable: true },
+                BinaryOperator::StringConcat => Ok(Type { base_type: BaseType::Text, nullable: true }),
 
                 // TODO bitwise operation in BinaryOperator
                 // TODO REGEXP. it is sqlite specific
 
-                _ => Type { base_type: BaseType::Unknown, nullable: false },
+                _ => Err(format!("invalid {expr}"))
             }
         },
 
@@ -211,9 +222,9 @@ pub fn evaluate_expr_type(
             | sqlparser::ast::UnaryOperator::Minus => evaluate_expr_type(expr, table_names_from_select, all_tables),
 
             // <NOT> always returns Bool
-            sqlparser::ast::UnaryOperator::Not => Type { base_type: BaseType::Bool, nullable: true },
+            sqlparser::ast::UnaryOperator::Not => Ok(Type { base_type: BaseType::Bool, nullable: true }),
 
-                _ => Type { base_type: BaseType::Unknown, nullable: false }
+                _ => Err(format!("invalid {expr}"))
             }
         },
 
@@ -232,7 +243,7 @@ pub fn evaluate_expr_type(
                 | DataType::BigInt(_)
                 | DataType::BigIntUnsigned(_)
                 | DataType::Int2(_)
-                | DataType::Int8(_) => Type { base_type: BaseType::Integer, nullable: true },
+                | DataType::Int8(_) => Ok(Type { base_type: BaseType::Integer, nullable: true }),
 
                 DataType::Character(_)
                 | DataType::Varchar(_)
@@ -242,7 +253,7 @@ pub fn evaluate_expr_type(
                 // sqlparser does not have  NATIVE CHARACTER(70)
                 | DataType::Nvarchar(_)
                 | DataType::Text
-                | DataType::Clob(_) => Type { base_type: BaseType::Text, nullable: true },
+                | DataType::Clob(_) => Ok(Type { base_type: BaseType::Text, nullable: true }),
 
                 // TODO
                 // DataType::Blob(_) =>
@@ -252,12 +263,12 @@ pub fn evaluate_expr_type(
                 | DataType::DoublePrecision
                 | DataType::Numeric(_) //undocumented but works
                 | DataType::Decimal(_) //undocumented but works
-                | DataType::Float(_) => Type { base_type: BaseType::Real, nullable: true },
+                | DataType::Float(_) => Ok(Type { base_type: BaseType::Real, nullable: true }),
 
 
                 // TODO Numeric
 
-                _ => Type { base_type: BaseType::Unknown, nullable: false }
+                _ => Err(format!("invalid data type {}", data_type))
 
             }
         },
@@ -280,14 +291,14 @@ pub fn evaluate_expr_type(
         Expr::Function(func) => {
             let name = func.name.to_string().to_uppercase();
 
-            let mut input_type = Type { base_type: BaseType::Unknown, nullable: false };
+            let mut input_type = Type { base_type: BaseType::Unknowns, nullable: false };
             let mut any_arg_nullable = false;
             let mut all_args_nullable = true; // track for COALESCE and ifnull
 
             if let FunctionArguments::List(list) = &func.args {
                 for arg in &list.args {
                     if let FunctionArg::Unnamed(FunctionArgExpr::Expr(expr)) = arg {
-                        let arg_type = evaluate_expr_type(expr, table_names_from_select.clone(), all_tables);
+                        let arg_type = evaluate_expr_type(expr, table_names_from_select.clone(), all_tables)?;
 
                         if arg_type.nullable {
                             any_arg_nullable = true;
@@ -296,7 +307,7 @@ pub fn evaluate_expr_type(
                         }
 
                         // If we already have a type, and the new arg is different (and neither are null), it's Unknown.
-                        if input_type.base_type == BaseType::Null || input_type.base_type == BaseType::Unknown {
+                        if input_type.base_type == BaseType::Null || input_type.base_type == BaseType::Unknowns {
                              // Initialize type from first non-null arg
                             input_type = arg_type;
                         } else if arg_type.base_type != BaseType::Null && input_type.base_type != arg_type.base_type {
@@ -306,7 +317,7 @@ pub fn evaluate_expr_type(
                                 input_type.base_type = BaseType::Real;
                             } else {
                                 // Incompatible types (e.g. Text vs Int) -> Unknown
-                                input_type.base_type = BaseType::Unknown;
+                                input_type.base_type = BaseType::Unknowns;
                             }
                         }
                     }
@@ -322,149 +333,146 @@ pub fn evaluate_expr_type(
                 // ---- core sqlite section --------
                 // https://sqlite.org/lang_corefunc.html TODO: not all of it is implemented
 
-                "COUNT" => Type {
+                "COUNT" => Ok(Type {
                     base_type: BaseType::Integer,
                     nullable: false // Correct: Count never returns NULL
-                },
+                }),
 
-                "AVG" => Type {
+                "AVG" => Ok(Type {
                     base_type: BaseType::Real,
                     nullable: true // Correct: AVG([]) is NULL
-                },
+                }),
 
-                "SUM" | "MIN" | "MAX" => Type {
+                "SUM" | "MIN" | "MAX" => Ok(Type {
                     base_type: input_type.base_type,
                     nullable: true // Correct: Aggregates on empty sets are NULL
-                },
+                }),
 
                 // SQLite "TOTAL" is like SUM but returns 0.0 on empty set
-                "TOTAL" => Type {
+                "TOTAL" => Ok(Type {
                     base_type: BaseType::Real,
                     nullable: false
-                },
+                }),
 
-                "RANDOM" => Type { base_type: BaseType::Integer, nullable: false },
+                "RANDOM" => Ok(Type { base_type: BaseType::Integer, nullable: false }),
 
                 // Standard NULL propagation
                 "LENGTH" | "OCTET_LENGTH" | "INSTR" | "UNICODE" |
-                "SIGN" | "GLOB" | "LIKE" | "ABS" | "ROUND" => Type {
+                "SIGN" | "GLOB" | "LIKE" | "ABS" | "ROUND" => Ok(Type {
                     base_type: if name == "ROUND" { BaseType::Real } else { BaseType::Integer },
                     nullable: any_arg_nullable
-                },
+                }),
 
                 // String funcs
                 "LOWER" | "UPPER" | "LTRIM" | "RTRIM" | "TRIM" |
-                "REPLACE" | "SUBSTR" | "SUBSTRING" | "UNISTR" | "UNISTR_QUOTE" => Type {
+                "REPLACE" | "SUBSTR" | "SUBSTRING" | "UNISTR" | "UNISTR_QUOTE" => Ok(Type {
                     base_type: BaseType::Text,
                     nullable: any_arg_nullable
-                },
+                }),
 
-                "CONCAT" | "CONCAT_WS" => Type {
+                "CONCAT" | "CONCAT_WS" => Ok(Type {
                     base_type: BaseType::Text,
                     nullable: false
-                },
+                }),
 
                 //  COALESCE is only nullable if ALL args are nullable
-                "COALESCE" | "IFNULL" => Type {
+                "COALESCE" | "IFNULL" => Ok(Type {
                     base_type: input_type.base_type,
                     nullable: all_args_nullable
-                },
+                }),
 
 
                 //-------MATH SECITON-------------
                 // https://sqlite.org/lang_mathfunc.html
-                "PI" => Type {
+                "PI" => Ok(Type {
                     base_type: BaseType::Real,
                     nullable: false // PI is never NULL
-                },
+                }),
 
 
                 // NEVER return null as it is defined for ALL REAL numbers
                 "ASINH" | "ATAN" | "ATAN2" |
                 "COSH" | "SINH" | "TANH" |
-                "EXP" | "DEGREES" | "RADIANS" => Type {
+                "EXP" | "DEGREES" | "RADIANS" => Ok(Type {
                     base_type: BaseType::Real,
                     nullable: any_arg_nullable
-                },
+                }),
 
                 // can return null cuz these functions are not definde for all real numbers
                 "ACOS" | "ACOSH" | "ASIN" | "ATANH" |
                 "COS" | "SIN" | "TAN" |
                 "LN" | "LOG" | "LOG10" | "LOG2" |
-                "POW" | "POWER" | "SQRT" => Type {
+                "POW" | "POWER" | "SQRT" => Ok(Type {
                     base_type: BaseType::Real,
                     nullable: true // Always True, because Math Errors = NULL
-                },
+                }),
 
 
                 // i know ceil and floor wont go through but no harm adding it
-                "CEIL" | "CEILING" | "FLOOR" | "TRUNC" => Type {
+                "CEIL" | "CEILING" | "FLOOR" | "TRUNC" => Ok(Type {
                     base_type: BaseType::Real,
                     nullable: any_arg_nullable
-                },
+                }),
 
                 // MOD(X,Y) returns the type of X/Y.
                 // If inputs are Int, result is Int. If inputs are Float, result is Float.
-                "MOD" => Type {
+                "MOD" => Ok(Type {
                     base_type: input_type.base_type,
                     nullable: any_arg_nullable
-                },
+                }),
 
 
                 // --- DateTime functions ---
                 // https://sqlite.org/lang_datefunc.html
                 // note: returns NULL if date format is invalid for all datetime funcions
 
-                "DATE" | "TIME" | "DATETIME" | "STRFTIME" | "TIMEDIFF" => Type {
+                "DATE" | "TIME" | "DATETIME" | "STRFTIME" | "TIMEDIFF" => Ok(Type {
                     base_type: BaseType::Text,
                     nullable: true
-                },
+                }),
 
-                "JULIANDAY" => Type {
+                "JULIANDAY" => Ok(Type {
                     base_type: BaseType::Real,
                     nullable: true
-                },
+                }),
 
-                "UNIXEPOCH" => Type {
+                "UNIXEPOCH" => Ok(Type {
                     base_type: BaseType::Integer,
                     nullable: true
-                },
+                }),
 
 
             // -- window functions --
             // https://www.postgresql.org/docs/current/functions-window.html (note sqlite window functions are aken from postgres so need worry)
 
             // Integer Ranking Functions (Always non-null)
-            "ROW_NUMBER" | "RANK" | "DENSE_RANK" => Type {
+            "ROW_NUMBER" | "RANK" | "DENSE_RANK" => Ok(Type {
                 base_type: BaseType::Integer,
                 nullable: false
-            },
+            }),
 
             // NTILE takes an argument. If arg is valid, it returns Int.
-            "NTILE" => Type {
+            "NTILE" => Ok(Type {
                 base_type: BaseType::Integer,
                 nullable: any_arg_nullable
-            },
+            }),
 
             // Statistical Ranking (Always Real, between 0 and 1)
-            "PERCENT_RANK" | "CUME_DIST" => Type {
+            "PERCENT_RANK" | "CUME_DIST" => Ok(Type {
                 base_type: BaseType::Real,
                 nullable: false
-            },
+            }),
 
             // Value Functions (Offset)
             // LEAD/LAG return the type of the expression being tracked.
             // They return NULL if the offset is out of bounds (unless default is provided).
             // Since we can't easily check the default value type here, nullable: true is safest. TODO
-            "LEAD" | "LAG" | "FIRST_VALUE" | "LAST_VALUE" | "NTH_VALUE" => Type {
+            "LEAD" | "LAG" | "FIRST_VALUE" | "LAST_VALUE" | "NTH_VALUE" => Ok(Type {
                 base_type: input_type.base_type, // Inferred from the 1st argument
                 nullable: true
-            },
+            }),
 
-                _ => Type {
-                    base_type: BaseType::Unknown,
-                    nullable: true
-                },
+                _ => Err(format!("invalid {}", name.as_str()))
             }
         }
 
@@ -475,20 +483,20 @@ pub fn evaluate_expr_type(
 
         // Math functions
         Expr::Ceil { expr, .. } | Expr::Floor { expr, .. } => {
-            let input = evaluate_expr_type(expr, table_names_from_select, all_tables);
-            Type {
+            let input = evaluate_expr_type(expr, table_names_from_select, all_tables)?;
+            Ok(Type {
                 base_type: BaseType::Real, // Always float
                 nullable: input.nullable   // Null propagates
-            }
+            })
         }
 
         // String functions (technically can be used for int and real. must give user flexibility in this case)
         Expr::Substring { expr, .. } | Expr::Trim { expr, .. } => {
-            let input = evaluate_expr_type(expr, table_names_from_select, all_tables);
-            Type {
+            let input = evaluate_expr_type(expr, table_names_from_select, all_tables)?;
+            Ok(Type {
                 base_type: BaseType::Text,
                 nullable: input.nullable
-            }
+            })
         }
 Expr::Case { conditions, else_result, .. } => {
             // Start with Null. We will update this based on what we find in the branches.
@@ -497,7 +505,7 @@ Expr::Case { conditions, else_result, .. } => {
             // 1. Look at every 'THEN <result>'
             for cond in conditions {
                 // We only care about cond.result (the output), not cond.operand (the logic)
-                let t = evaluate_expr_type(&cond.result, table_names_from_select.clone(), all_tables);
+                let t = evaluate_expr_type(&cond.result, table_names_from_select.clone(), all_tables)?;
 
                 // Merge logic (Finding common denominator)
                 if result_type.base_type == BaseType::Null {
@@ -509,7 +517,7 @@ Expr::Case { conditions, else_result, .. } => {
                         result_type.base_type = BaseType::Real;
                     } else {
                         // Incompatible (e.g. Text vs Int) -> Unknown
-                        return Type { base_type: BaseType::Unknown, nullable: true };
+                        return Err(format!("Incompatible type {:?}", t.base_type))
                     }
                 }
 
@@ -518,7 +526,7 @@ Expr::Case { conditions, else_result, .. } => {
 
             // 2. Look at 'ELSE <result>'
             if let Some(else_expr) = else_result {
-                let t = evaluate_expr_type(else_expr, table_names_from_select, all_tables);
+                let t = evaluate_expr_type(else_expr, table_names_from_select, all_tables)?;
 
                 if result_type.base_type == BaseType::Null {
                     result_type = t.clone();
@@ -527,7 +535,7 @@ Expr::Case { conditions, else_result, .. } => {
                        (t.base_type == BaseType::Integer && result_type.base_type == BaseType::Real) {
                         result_type.base_type = BaseType::Real;
                     } else {
-                        return Type { base_type: BaseType::Unknown, nullable: true };
+                        return Err(format!("Incompatible type {:?}", t.base_type))
                     }
                 }
                 if t.nullable { result_type.nullable = true; }
@@ -536,8 +544,8 @@ Expr::Case { conditions, else_result, .. } => {
                 result_type.nullable = true;
             }
 
-            result_type
+            Ok(result_type)
         },
-        _ => Type { base_type: BaseType::Unknown, nullable: false },
+        _ => Err(format!("invalid {expr}"))
     }
 }

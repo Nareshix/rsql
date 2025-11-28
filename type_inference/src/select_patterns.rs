@@ -15,7 +15,7 @@ use crate::{
 pub fn get_types_from_select(
     sql: &str,
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
-) -> Vec<Type> {
+) -> Vec<Result<Type, String>> {
     let dialect = SQLiteDialect {};
     let table_names_from_select = get_table_names(sql);
 
@@ -45,7 +45,7 @@ pub fn get_types_from_select(
                     for table_name in &table_names_from_select {
                         let column_infos = &all_tables[table_name];
                         for column_info in column_infos {
-                            column_types.push(column_info.data_type.clone());
+                            column_types.push(Ok(column_info.data_type.clone()));
                         }
                     }
                 }
@@ -59,7 +59,7 @@ pub fn get_types_from_select(
                             let table_name = &ident.value;
                             let column_infos = &all_tables[table_name];
                             for column_info in column_infos {
-                                column_types.push(column_info.data_type.clone());
+                                column_types.push(Ok(column_info.data_type.clone()));
                             }
                         }
                     }
