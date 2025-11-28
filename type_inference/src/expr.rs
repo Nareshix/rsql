@@ -301,7 +301,7 @@ pub fn evaluate_expr_type(
 
             match name.as_str() {
                 // ---- core sqlite section --------
-                // https://sqlite.org/lang_corefunc.html
+                // https://sqlite.org/lang_corefunc.html TODO: not all of it is implemented
 
                 "COUNT" => Type {
                     base_type: BaseType::Integer,
