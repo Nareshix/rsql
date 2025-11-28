@@ -243,18 +243,6 @@ pub fn evaluate_expr_type(
         },
 
 
-// 3. Window Functions (Ranking) TODO sqlite core, math and date also TODO
-
-// Ranking functions generate new numbers based on row position. They cannot produce nulls.
-
-//     ROW_NUMBER()
-
-//     RANK()
-
-//     DENSE_RANK()
-
-//     NTILE()
-
         // some expressions have their own enum which couldve been inside the Function enum but isnt.
         // we have to handle those cases seperately. https://docs.rs/sqlparser/latest/sqlparser/ast/enum.Expr.html, sqlparser-0.59
 
