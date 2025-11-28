@@ -411,6 +411,35 @@ pub fn evaluate_expr_type(
                 },
 
 
+            // -- window functions --
+
+            // Integer Ranking Functions (Always non-null)
+            "ROW_NUMBER" | "RANK" | "DENSE_RANK" => Type {
+                base_type: BaseType::Integer,
+                nullable: false
+            },
+
+            // NTILE takes an argument. If arg is valid, it returns Int.
+            "NTILE" => Type {
+                base_type: BaseType::Integer,
+                nullable: any_arg_nullable
+            },
+
+            // Statistical Ranking (Always Real, between 0 and 1)
+            "PERCENT_RANK" | "CUME_DIST" => Type {
+                base_type: BaseType::Real,
+                nullable: false
+            },
+
+            // Value Functions (Offset)
+            // LEAD/LAG return the type of the expression being tracked.
+            // They return NULL if the offset is out of bounds (unless default is provided).
+            // Since we can't easily check the default value type here, nullable: true is safest. TODO
+            "LEAD" | "LAG" | "FIRST_VALUE" | "LAST_VALUE" | "NTH_VALUE" => Type {
+                base_type: input_type.base_type, // Inferred from the 1st argument
+                nullable: true
+            },
+
                 _ => Type {
                     base_type: BaseType::Null,
                     nullable: true
