@@ -6,7 +6,7 @@ use sqlparser::ast::{
 
 use crate::table::ColumnInfo;
 // TODO, need to handle cases when it can be NULL
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BaseType {
     Integer,
     Real,
