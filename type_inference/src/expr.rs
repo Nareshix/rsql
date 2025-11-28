@@ -42,6 +42,9 @@ fn derive_math_type(left: Type, right: Type) -> Type {
     }
 }
 
+/// https://docs.rs/sqlparser/latest/sqlparser/ast/enum.Expr.html, version 0.59.0
+///
+/// we will patern match all 63 (yep...). Some of them are not supported by sqlite so they will be skipped and commented.
 pub fn evaluate_expr_type(
     expr: &Expr,
     table_names_from_select: Vec<String>,
@@ -80,7 +83,29 @@ pub fn evaluate_expr_type(
             panic!("multiple identifier not found in tables.")
         },
 
+        // Expr::CompoundFieldAccess {..}
+        // Expr::JsonAccess {..}
+        // Expr::Prefixed {.. } -- mysql specifc
+        // Expr::TypedString(_) -- TODO
+        // Expr::Subquery() TODO
+        // Expr::GroupingSets() TODO
+        // Expr::Cube() TODO
+        // Expr::Rollup() TODO
+        // Expr::Tuple(_) TODO
+        // Expr::Struct { _ }
+        // Expr::Named {..} bigquery specifc
+        // Expr::Dictionary() duckdb specific
+        // Expr::Map() duckdb specific
+        // Expr::Array() sqlite dont have array type
+        // Expr::MatchAgainst { } mysql specific
+        // Expr::Wildcard() --handled in select_pattern.rs
+        // Expr::QualifiedWildcard(, ) --handled in select_pattern.rs
+        // Expr::OuterJoin() --handled in creation of table
+        // Expr::Prior() TODO
+        // Expr::Lambda() bleh
+        // Expr::MemberOf() json specifc TODO
 
+        // Compound
         // Raw Values e.g. SELECT 1 or SELECT "hello"
         Expr::Value(val) =>{
 
@@ -118,6 +143,8 @@ pub fn evaluate_expr_type(
         | Expr::IsNotUnknown(..) // i dont think sqlite has TODO
         | Expr::Exists { .. } => Type { base_type: BaseType::Bool, nullable: false },
 
+        // Expr::ILike { .. }
+        // Expr::RLike { .. }
         Expr::Like { .. }
         | Expr::SimilarTo { .. } // TODO does sqlite support
         | Expr::Between { .. }
@@ -176,6 +203,7 @@ pub fn evaluate_expr_type(
         // Nested expression e.g. (foo > bar) or (1)
         Expr::Nested(inner_expr) => evaluate_expr_type(inner_expr, table_names_from_select, all_tables),
 
+        // Expr::Convert {..}
         Expr::Cast { data_type, .. } => {
             // http://www.sqlite.org/datatype3.html#affinity_name_examples
             match data_type {
@@ -215,7 +243,6 @@ pub fn evaluate_expr_type(
         },
 
 
-
 // 3. Window Functions (Ranking) TODO sqlite core, math and date also TODO
 
 // Ranking functions generate new numbers based on row position. They cannot produce nulls.
@@ -227,6 +254,26 @@ pub fn evaluate_expr_type(
 //     DENSE_RANK()
 
 //     NTILE()
+
+        // some expressions have their own enum which couldve been inside the Function enum but isnt.
+        // we have to handle those cases seperately. https://docs.rs/sqlparser/latest/sqlparser/ast/enum.Expr.html, sqlparser-0.59
+
+        // ? category
+        // Expr::Overlay { .. }
+        // Expr::Collate { } TODO
+
+        // Datetime
+        // Expr::AtTimeZone {..}  TODO
+
+        // String functions (technically can be used for int and real. must give user flexibility in this case)
+        Expr::Substring { expr,.. } => {
+            evaluate_expr_type(expr, table_names_from_select, all_tables)
+        }
+        Expr::Trim { expr, .. } => {
+            evaluate_expr_type(expr, table_names_from_select, all_tables)
+        }
+        // Expr::Extract {.. }   TODO use strftime() instead
+        // Expr::Position { .. } TODO use instr
 
 
         // Aggregate functions
@@ -247,7 +294,7 @@ pub fn evaluate_expr_type(
                                 && let FunctionArg::Unnamed(FunctionArgExpr::Expr(expr)) = func_arg {
                                     return evaluate_expr_type(expr, table_names_from_select, all_tables);
                                 }
-                        Type { base_type: BaseType::Null, nullable: true }
+                        Type { base_type: BaseType::Null, nullable: false }
                     };
 
                     let input_type = get_arg_type();
@@ -256,17 +303,17 @@ pub fn evaluate_expr_type(
                         // AVG always produces Real
                         "AVG" => Type {
                             base_type: BaseType::Real,
-                            nullable: true,
+                            nullable: input_type.nullable,
                         },
 
                         "SUM" => Type {
                             base_type: input_type.base_type,
-                            nullable: true,
+                            nullable: input_type.nullable,
                         },
 
                         "MIN" | "MAX" => Type {
                             base_type: input_type.base_type,
-                            nullable: true,
+                            nullable: input_type.nullable,
                         },
                         _ => unreachable!(),
                     }
@@ -277,6 +324,15 @@ pub fn evaluate_expr_type(
                 },
             }
         },
+
+        // Math functions
+        Expr::Ceil {expr, ..} => {
+            evaluate_expr_type(expr, table_names_from_select, all_tables)
+        }
+
+        Expr::Floor { expr, .. } => {
+            evaluate_expr_type(expr, table_names_from_select, all_tables)
+        }
 
         _ => Type { base_type: BaseType::Null, nullable: false },
     }
