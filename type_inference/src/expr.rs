@@ -25,13 +25,16 @@ pub struct Type {
 }
 
 #[allow(unused)]
-/// if either type is a float, returns **Float**. Or else, it returns **Int**
+/// if either type is a float, returns **Float**. Or else, it returns **Int**. If garbage input in return unknown
 fn derive_math_type(left: Type, right: Type) -> Type {
     let nullable = left.nullable || right.nullable;
 
     let base = match (&left.base_type, &right.base_type) {
         (BaseType::Null, _) | (_, BaseType::Null) => BaseType::Null,
-        (BaseType::Real, _) | (_, BaseType::Real) => BaseType::Real,
+        // Only allow numeric combinations
+        (BaseType::Real, BaseType::Real)
+        | (BaseType::Real, BaseType::Integer)
+        | (BaseType::Integer, BaseType::Real) => BaseType::Real,
         (BaseType::Integer, BaseType::Integer) => BaseType::Integer,
         _ => BaseType::Unknown,
     };
@@ -41,7 +44,6 @@ fn derive_math_type(left: Type, right: Type) -> Type {
         nullable,
     }
 }
-
 /// https://docs.rs/sqlparser/latest/sqlparser/ast/enum.Expr.html, version 0.59.0
 ///
 /// we will patern match all 63 (yep...). Some of them are not supported by sqlite so they will be skipped and commented.
@@ -66,7 +68,7 @@ pub fn evaluate_expr_type(
                     return column_info.data_type.clone()
                 }
             }
-            panic!("single identifier not found in tables.")
+            Type { base_type: BaseType::Unknown, nullable: false }
         },
 
         Expr::CompoundIdentifier(idents) => {
@@ -80,7 +82,7 @@ pub fn evaluate_expr_type(
                     return column_info.data_type.clone()
                 }
             }
-            panic!("multiple identifier not found in tables.")
+            Type { base_type: BaseType::Unknown, nullable: false }
         },
 
         // Expr::CompoundFieldAccess {..}
@@ -167,7 +169,25 @@ pub fn evaluate_expr_type(
                 | BinaryOperator::GtEq
                 | BinaryOperator::LtEq
                 | BinaryOperator::And
-                | BinaryOperator::Or => Type { base_type: BaseType::Bool, nullable: true },
+                | BinaryOperator::Or => {
+                    let is_compatible = match (&left_type.base_type, &right_type.base_type) {
+                    (BaseType::Integer, BaseType::Integer) => true,
+                    (BaseType::Real, BaseType::Real) => true,
+                    (BaseType::Text, BaseType::Text) => true,
+                    (BaseType::Bool, BaseType::Bool) => true,
+                    // Allow comparing Int vs Real
+                    (BaseType::Integer, BaseType::Real) | (BaseType::Real, BaseType::Integer) => true,
+                    (BaseType::Null, _) | (_, BaseType::Null) => true, // Null compares to anything usually
+                    _ => false,
+                };
+
+                if !is_compatible {
+                    Type { base_type: BaseType::Unknown, nullable: false }
+                } else {
+                    Type { base_type: BaseType::Bool, nullable: true }
+                }
+
+                },
 
                 BinaryOperator::Plus
                 | BinaryOperator::Minus
@@ -233,12 +253,15 @@ pub fn evaluate_expr_type(
                 DataType::Real
                 | DataType::Double(_)
                 | DataType::DoublePrecision
+                | DataType::Numeric(_) //undocumented but works
+                | DataType::Decimal(_) //undocumented but works
                 | DataType::Float(_) => Type { base_type: BaseType::Real, nullable: true },
 
 
                 // TODO Numeric
 
-                _ => panic!("Datatype CAST Not supported by sqlite")
+                _ => Type { base_type: BaseType::Unknown, nullable: false }
+
             }
         },
 
@@ -272,20 +295,31 @@ pub fn evaluate_expr_type(
                         if arg_type.nullable {
                             any_arg_nullable = true;
                         } else {
-                            all_args_nullable = false; // Found a non-null arg
+                            all_args_nullable = false;
                         }
 
-                        // Simple type coercion (Keep the first non-null/non-unknown type)
-                        if input_type.base_type == BaseType::Null && arg_type.base_type != BaseType::Null {
+                        // If we already have a type, and the new arg is different (and neither are null), it's Unknown.
+                        if input_type.base_type == BaseType::Null || input_type.base_type == BaseType::Unknown {
+                             // Initialize type from first non-null arg
                             input_type = arg_type;
+                        } else if arg_type.base_type != BaseType::Null && input_type.base_type != arg_type.base_type {
+                            // Allow Int -> Real promotion
+                            if (input_type.base_type == BaseType::Integer && arg_type.base_type == BaseType::Real) ||
+                               (input_type.base_type == BaseType::Real && arg_type.base_type == BaseType::Integer) {
+                                input_type.base_type = BaseType::Real;
+                            } else {
+                                // Incompatible types (e.g. Text vs Int) -> Unknown
+                                input_type.base_type = BaseType::Unknown;
+                            }
                         }
                     }
                 }
             } else {
-                // Handle COUNT(*) or invalid args
-                // For COUNT(*), we assume input isn't nullable, effectively.
-                all_args_nullable = false;
-            }
+                    // Handle COUNT() or invalid args
+                    // For COUNT(), we assume input isn't nullable, effectively.
+                    all_args_nullable = false;
+                    }
+
 
             match name.as_str() {
                 // ---- core sqlite section --------
@@ -443,22 +477,70 @@ pub fn evaluate_expr_type(
         // version 0.59.0
 
         // Math functions
-        Expr::Ceil {expr, ..} => {
-            evaluate_expr_type(expr, table_names_from_select, all_tables)
-        }
-
-        Expr::Floor { expr, .. } => {
-            evaluate_expr_type(expr, table_names_from_select, all_tables)
+        Expr::Ceil { expr, .. } | Expr::Floor { expr, .. } => {
+            let input = evaluate_expr_type(expr, table_names_from_select, all_tables);
+            Type {
+                base_type: BaseType::Real, // Always float
+                nullable: input.nullable   // Null propagates
+            }
         }
 
         // String functions (technically can be used for int and real. must give user flexibility in this case)
-        Expr::Substring { expr,.. } => {
-            evaluate_expr_type(expr, table_names_from_select, all_tables)
+        Expr::Substring { expr, .. } | Expr::Trim { expr, .. } => {
+            let input = evaluate_expr_type(expr, table_names_from_select, all_tables);
+            Type {
+                base_type: BaseType::Text,
+                nullable: input.nullable
+            }
         }
-        Expr::Trim { expr, .. } => {
-            evaluate_expr_type(expr, table_names_from_select, all_tables)
-        }
+Expr::Case { conditions, else_result, .. } => {
+            // Start with Null. We will update this based on what we find in the branches.
+            let mut result_type = Type { base_type: BaseType::Null, nullable: false };
 
+            // 1. Look at every 'THEN <result>'
+            for cond in conditions {
+                // We only care about cond.result (the output), not cond.operand (the logic)
+                let t = evaluate_expr_type(&cond.result, table_names_from_select.clone(), all_tables);
+
+                // Merge logic (Finding common denominator)
+                if result_type.base_type == BaseType::Null {
+                    result_type = t.clone();
+                } else if t.base_type != BaseType::Null && t.base_type != result_type.base_type {
+                    // Promotion: Int vs Real -> Real
+                    if (t.base_type == BaseType::Real && result_type.base_type == BaseType::Integer) ||
+                       (t.base_type == BaseType::Integer && result_type.base_type == BaseType::Real) {
+                        result_type.base_type = BaseType::Real;
+                    } else {
+                        // Incompatible (e.g. Text vs Int) -> Unknown
+                        return Type { base_type: BaseType::Unknown, nullable: true };
+                    }
+                }
+
+                if t.nullable { result_type.nullable = true; }
+            }
+
+            // 2. Look at 'ELSE <result>'
+            if let Some(else_expr) = else_result {
+                let t = evaluate_expr_type(else_expr, table_names_from_select, all_tables);
+
+                if result_type.base_type == BaseType::Null {
+                    result_type = t.clone();
+                } else if t.base_type != BaseType::Null && t.base_type != result_type.base_type {
+                     if (t.base_type == BaseType::Real && result_type.base_type == BaseType::Integer) ||
+                       (t.base_type == BaseType::Integer && result_type.base_type == BaseType::Real) {
+                        result_type.base_type = BaseType::Real;
+                    } else {
+                        return Type { base_type: BaseType::Unknown, nullable: true };
+                    }
+                }
+                if t.nullable { result_type.nullable = true; }
+            } else {
+                // If there is no ELSE, SQL implicitly assumes 'ELSE NULL', so it is nullable
+                result_type.nullable = true;
+            }
+
+            result_type
+        },
         _ => Type { base_type: BaseType::Unknown, nullable: false },
     }
 }
