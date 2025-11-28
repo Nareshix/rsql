@@ -498,54 +498,48 @@ pub fn evaluate_expr_type(
                 nullable: input.nullable
             })
         }
-Expr::Case { conditions, else_result, .. } => {
-            // Start with Null. We will update this based on what we find in the branches.
-            let mut result_type = Type { base_type: BaseType::Null, nullable: false };
 
-            // 1. Look at every 'THEN <result>'
+        // TODO not too sure whether correct his part was geenrated by ai. pls come and check again.
+
+    Expr::Case { conditions, else_result, .. } => {
+            let mut output_type = Type { base_type: BaseType::Null, nullable: false };
+
+            // 1. Collect all outcome types (THEN ... and ELSE ...)
+            let mut result_types = Vec::new();
             for cond in conditions {
-                // We only care about cond.result (the output), not cond.operand (the logic)
-                let t = evaluate_expr_type(&cond.result, table_names_from_select.clone(), all_tables)?;
-
-                // Merge logic (Finding common denominator)
-                if result_type.base_type == BaseType::Null {
-                    result_type = t.clone();
-                } else if t.base_type != BaseType::Null && t.base_type != result_type.base_type {
-                    // Promotion: Int vs Real -> Real
-                    if (t.base_type == BaseType::Real && result_type.base_type == BaseType::Integer) ||
-                       (t.base_type == BaseType::Integer && result_type.base_type == BaseType::Real) {
-                        result_type.base_type = BaseType::Real;
-                    } else {
-                        // Incompatible (e.g. Text vs Int) -> Unknown
-                        return Err(format!("Incompatible type {:?}", t.base_type))
-                    }
-                }
-
-                if t.nullable { result_type.nullable = true; }
+                result_types.push(evaluate_expr_type(&cond.result, table_names_from_select.clone(), all_tables)?);
             }
 
-            // 2. Look at 'ELSE <result>'
             if let Some(else_expr) = else_result {
-                let t = evaluate_expr_type(else_expr, table_names_from_select, all_tables)?;
-
-                if result_type.base_type == BaseType::Null {
-                    result_type = t.clone();
-                } else if t.base_type != BaseType::Null && t.base_type != result_type.base_type {
-                     if (t.base_type == BaseType::Real && result_type.base_type == BaseType::Integer) ||
-                       (t.base_type == BaseType::Integer && result_type.base_type == BaseType::Real) {
-                        result_type.base_type = BaseType::Real;
-                    } else {
-                        return Err(format!("Incompatible type {:?}", t.base_type))
-                    }
-                }
-                if t.nullable { result_type.nullable = true; }
+                result_types.push(evaluate_expr_type(else_expr, table_names_from_select.clone(), all_tables)?);
             } else {
-                // If there is no ELSE, SQL implicitly assumes 'ELSE NULL', so it is nullable
-                result_type.nullable = true;
+                // No ELSE means implicit "ELSE NULL", making the result nullable
+                output_type.nullable = true;
             }
 
-            Ok(result_type)
+            // 2. Unify types
+            for t in result_types {
+                // If any branch is nullable, the whole result is nullable
+                if t.nullable {
+                    output_type.nullable = true;
+                }
+
+                // Logic to merge BaseTypes
+                if output_type.base_type == BaseType::Null {
+                    // Initialize with first non-null type found
+                    output_type.base_type = t.base_type;
+                } else if t.base_type != BaseType::Null && output_type.base_type != t.base_type {
+                    // Type Promotion: Int + Real = Real
+                    match (output_type.base_type, t.base_type) {
+                        (BaseType::Integer, BaseType::Real) => output_type.base_type = BaseType::Real,
+                        (BaseType::Real, BaseType::Integer) => output_type.base_type = BaseType::Real,
+                        // If types are totally different (Text vs Int), it's an error
+                        (left, right) => return Err(format!("Incompatible types in CASE: {:?} and {:?}", left, right)),
+                    }
+                }
+            }
+
+            Ok(output_type)
         },
-        _ => Err(format!("invalid {expr}"))
     }
 }
