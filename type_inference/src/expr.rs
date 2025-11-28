@@ -541,5 +541,6 @@ pub fn evaluate_expr_type(
 
             Ok(output_type)
         },
+        _ => Err(format!("Invlaid {expr}"))
     }
 }
