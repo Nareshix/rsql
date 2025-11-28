@@ -125,13 +125,29 @@ pub fn evaluate_expr_type(
         | Expr::IsUnknown(..) // i dont think sqlite has TODO
         | Expr::IsNotUnknown(..) // i dont think sqlite has TODO
         | Expr::Exists { .. } => Ok(Type { base_type: BaseType::Bool, nullable: false }),
+        // TODO Exists can be null
 
         // Expr::ILike { .. }
         // Expr::RLike { .. }
+
+// sqlite> select 1 IN (1, NULL);
+// 1
+// sqlite> select 2 IN (1, NULL);
+
+// sqlite> select 3 IN (1, NULL);
+
+// sqlite> select NULL IN (1, NULL);
+
+// sqlite>
+
+    // Expr::InList { .. } => {},
+
+
+
         Expr::Like { .. }
         | Expr::SimilarTo { .. } // TODO does sqlite support
         | Expr::Between { .. }
-        | Expr::InList { .. }
+        | Expr::InList { .. } //TODO, this can be nulll btw
         | Expr::AnyOp { .. }
         | Expr::InSubquery { .. }
         | Expr::InUnnest { .. } // i dont think sqlite has TODO
@@ -508,9 +524,9 @@ pub fn evaluate_expr_type(
         // TODO not too sure whether correct his part was geenrated by ai. pls come and check again.
 
     Expr::Case { conditions, else_result, .. } => {
-            let mut output_type = Type { base_type: BaseType::Null, nullable: true };
+            // FIX: Initialize nullable to false. We only flip it to true if necessary.
+            let mut output_type = Type { base_type: BaseType::Null, nullable: false };
 
-            // 1. Collect all outcome types (THEN ... and ELSE ...)
             let mut result_types = Vec::new();
             for cond in conditions {
                 result_types.push(evaluate_expr_type(&cond.result, table_names_from_select.clone(), all_tables)?);
@@ -519,27 +535,21 @@ pub fn evaluate_expr_type(
             if let Some(else_expr) = else_result {
                 result_types.push(evaluate_expr_type(else_expr, table_names_from_select.clone(), all_tables)?);
             } else {
-                // No ELSE means implicit "ELSE NULL", making the result nullable
                 output_type.nullable = true;
             }
 
-            // 2. Unify types
             for t in result_types {
-                // If any branch is nullable, the whole result is nullable
                 if t.nullable {
                     output_type.nullable = true;
                 }
 
                 // Logic to merge BaseTypes
                 if output_type.base_type == BaseType::Null {
-                    // Initialize with first non-null type found
                     output_type.base_type = t.base_type;
                 } else if t.base_type != BaseType::Null && output_type.base_type != t.base_type {
-                    // Type Promotion: Int + Real = Real
                     match (output_type.base_type, t.base_type) {
                         (BaseType::Integer, BaseType::Real) => output_type.base_type = BaseType::Real,
                         (BaseType::Real, BaseType::Integer) => output_type.base_type = BaseType::Real,
-                        // If types are totally different (Text vs Int), it's an error
                         (left, right) => return Err(format!("Incompatible types in CASE: {:?} and {:?}", left, right)),
                     }
                 }
