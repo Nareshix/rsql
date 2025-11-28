@@ -5,7 +5,6 @@ use sqlparser::{
 };
 use std::collections::HashMap;
 
-// Assuming these exist in your crate
 use crate::expr::evaluate_expr_type;
 use crate::{
     expr::Type,
