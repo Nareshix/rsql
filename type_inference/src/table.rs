@@ -25,31 +25,32 @@ struct Table {
 }
 
 #[allow(unused)]
-fn convert_sqlite_to_rust_type(sql: String) -> Type {
+#[allow(unused)]
+// 1. Add `nullable: bool` argument here
+fn convert_sqlite_to_rust_type(sql: String, nullable: bool) -> Type {
     if sql == "TEXT" {
         Type {
             base_type: BaseType::Text,
-            nullable: false,
+            nullable,
         }
     } else if sql == "INTEGER" {
         Type {
             base_type: BaseType::Integer,
-            nullable: false,
+            nullable,
         }
     } else if sql == "REAL" {
         Type {
             base_type: BaseType::Real,
-            nullable: false,
+            nullable,
         }
     } else {
         Type {
             base_type: BaseType::Null,
-            nullable: false,
+            nullable,
         }
     }
     // TODO bool
 }
-
 #[allow(unused)]
 /// parses the sql and creates an ast for table. then it  is inserted into the Hashmap.
 pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
@@ -63,15 +64,23 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
                 .iter()
                 .map(|col| {
                     let mut check_expr = None;
+                    let mut nullable = true;
 
                     for option_def in &col.options {
-                        if let ColumnOption::Check(expr) = &option_def.option {
-                            // expr.to_string() turns the AST expression back into readable SQL
-                            check_expr = Some(expr.to_string());
+                        match &option_def.option {
+                            ColumnOption::Check(expr) => {
+                                check_expr = Some(expr.to_string());
+                            }
+                            ColumnOption::NotNull => {
+                                nullable = false;
+                            }
+                            _ => {} // TODO
                         }
                     }
 
-                    let data_type = convert_sqlite_to_rust_type(col.data_type.to_string());
+                    let data_type =
+                        convert_sqlite_to_rust_type(col.data_type.to_string(), nullable);
+
                     ColumnInfo {
                         name: col.name.value.clone(),
                         data_type,
@@ -99,7 +108,7 @@ pub fn get_table_names(sql: &str) -> Vec<String> {
         // ignore  query.with (CTEs)
         if let SetExpr::Select(select) = &*query.body {
             for table_with_joins in &select.from {
-               // Check the main table in the FROM clause
+                // Check the main table in the FROM clause
                 extract_table(&table_with_joins.relation, &mut table_names);
 
                 // Iterate over any JOINs attached to this table
