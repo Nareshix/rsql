@@ -269,7 +269,6 @@ pub fn evaluate_expr_type(
         // Expr::Position { .. } TODO use instr
 
         // Functions
-        // https://sqlite.org/lang_corefunc.html
         Expr::Function(func) => {
             let name = func.name.to_string().to_uppercase();
 
@@ -302,6 +301,7 @@ pub fn evaluate_expr_type(
 
             match name.as_str() {
                 // ---- core sqlite section --------
+                // https://sqlite.org/lang_corefunc.html
 
                 "COUNT" => Type {
                     base_type: BaseType::Integer,
@@ -353,7 +353,7 @@ pub fn evaluate_expr_type(
 
 
                 //-------MATH SECITON-------------
-
+                // https://sqlite.org/lang_mathfunc.html
                 "PI" => Type {
                     base_type: BaseType::Real,
                     nullable: false // PI is never NULL
@@ -393,7 +393,8 @@ pub fn evaluate_expr_type(
 
 
                 // --- DateTime functions ---
-                // Returns NULL if date format is invalid
+                // https://sqlite.org/lang_datefunc.html
+                // note: returns NULL if date format is invalid for all datetime funcions
 
                 "DATE" | "TIME" | "DATETIME" | "STRFTIME" | "TIMEDIFF" => Type {
                     base_type: BaseType::Text,
@@ -412,6 +413,7 @@ pub fn evaluate_expr_type(
 
 
             // -- window functions --
+            // https://www.postgresql.org/docs/current/functions-window.html (note sqlite window functions are aken from postgres so need worry)
 
             // Integer Ranking Functions (Always non-null)
             "ROW_NUMBER" | "RANK" | "DENSE_RANK" => Type {
