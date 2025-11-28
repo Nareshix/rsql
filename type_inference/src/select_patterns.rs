@@ -1,5 +1,5 @@
 use sqlparser::{
-    ast::{SelectItem, SetExpr, Statement},
+    ast::{ObjectNamePart, SelectItem, SelectItemQualifiedWildcardKind, SetExpr, Statement},
     dialect::SQLiteDialect,
     parser::Parser,
 };
@@ -42,14 +42,34 @@ pub fn get_types_from_select(
                 }
 
                 // SELECT *
-                SelectItem::Wildcard(_options) => {
-                    todo!();
+                SelectItem::Wildcard(_) => {
+                    for table_name in &table_names_from_select {
+                        let column_infos = &all_tables[table_name];
+                        for column_info in column_infos {
+                            column_types.push(column_info.data_type.clone());
+                        }
+                    }
                 }
 
                 // SELECT users.*
-                SelectItem::QualifiedWildcard(object_name, _options) => {
-                    todo!();
-                }
+                SelectItem::QualifiedWildcard(object_name, _) => match object_name {
+                    SelectItemQualifiedWildcardKind::ObjectName(obj) => {
+                        if let ObjectNamePart::Identifier(ident) = &obj.0[0] {
+                            // its guranteed to be only one table and we are getting
+                            // all the col type from that table
+                            let table_name = &ident.value;
+                            let column_infos = &all_tables[table_name];
+                            for column_info in column_infos {
+                                column_types.push(column_info.data_type.clone());
+                            }
+                        }
+                    }
+                    SelectItemQualifiedWildcardKind::Expr(expr) => {
+                        let t =
+                            evaluate_expr_type(expr, table_names_from_select.clone(), all_tables);
+                        column_types.push(t);
+                    }
+                },
             }
         }
     }
