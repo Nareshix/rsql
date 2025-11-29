@@ -30,7 +30,6 @@ pub fn get_type_of_binding_parameters(
                     let assignment_target = &assignment.target;
             if let AssignmentTarget::ColumnName(c) = assignment_target {
                 for col in &c.0 {
-                    // Rename 'expr' to 'ident' here for clarity. It is of type &Ident
                     if let ObjectNamePart::Identifier(ident) = col {
 
                         // Wrap the Ident into an Expr::Identifier
