@@ -18,6 +18,7 @@ pub fn get_type_of_binding_parameters(
 ) -> Result<Type, String> {
     let statements = Parser::parse_sql(&SQLiteDialect {}, sql).unwrap();
 
+    // LHS op RHS (including Lists and exists, TODO exist)
     let table_names_from_select = get_table_names(sql);
     let visit_exp = visit_expressions(&statements, |expr| {
         match expr {
@@ -81,6 +82,8 @@ pub fn get_type_of_binding_parameters(
         return result;
     }
 
+
+    // LIMIT and OFFSET
     let check_placeholder = |expr: &Expr| {
         if matches!(
             expr,
