@@ -36,6 +36,7 @@ pub fn get_type_of_binding_parameters(
                 }
             }
             Expr::InList { expr, list, .. } => {
+                // assumed all are ? in the list
                 if let Expr::Value(ValueWithSpan { value, .. }) = &list[0]
                     && let Value::Placeholder(_) = value
                 {
