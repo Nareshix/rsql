@@ -30,13 +30,13 @@ pub fn get_types_from_select(
             match item {
                 // SELECT column_name OR SELECT count(*) and other aggregate fns
                 SelectItem::UnnamedExpr(expr) => {
-                    let t = evaluate_expr_type(expr, table_names_from_select.clone(), all_tables);
+                    let t = evaluate_expr_type(expr, &table_names_from_select, all_tables);
                     column_types.push(t);
                 }
 
                 // SELECT column_name AS alias
                 SelectItem::ExprWithAlias { expr, alias: _ } => {
-                    let t = evaluate_expr_type(expr, table_names_from_select.clone(), all_tables);
+                    let t = evaluate_expr_type(expr, &table_names_from_select, all_tables);
                     column_types.push(t);
                 }
 
@@ -65,7 +65,7 @@ pub fn get_types_from_select(
                     }
                     SelectItemQualifiedWildcardKind::Expr(expr) => {
                         let t =
-                            evaluate_expr_type(expr, table_names_from_select.clone(), all_tables);
+                            evaluate_expr_type(expr, &table_names_from_select, all_tables);
                         column_types.push(t);
                     }
                 },
