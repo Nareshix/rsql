@@ -185,9 +185,8 @@ pub fn evaluate_expr_type(
                             "Cannot compare Types  '{:?}' and '{:?}'.",
                             left_type.base_type, right_type.base_type))
 
-                } else if has_placeholder {
-                    Ok(Type { base_type: BaseType::Bool, nullable: true, contains_placeholder: true })
-                } else {
+                }
+                else {
                     Ok(Type { base_type: BaseType::Bool, nullable: true, contains_placeholder: false })
 
                 }
