@@ -6,7 +6,7 @@ use sqlparser::{
     parser::Parser,
 };
 
-use crate::expr::evaluate_expr_type;
+use crate::expr::{BaseType, evaluate_expr_type};
 use crate::{
     expr::Type,
     table::{ColumnInfo, get_table_names},
@@ -17,12 +17,12 @@ pub fn get_type_of_binding_parameters(
     sql: &str,
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
 ) -> Vec<Result<Type, String>> {
-    let statements = Parser::parse_sql(&SQLiteDialect {}, sql).unwrap();
+    let statement = &Parser::parse_sql(&SQLiteDialect {}, sql).unwrap()[0];
     let table_names_from_select = get_table_names(sql);
     let mut types = Vec::new();
 
     // LHS op RHS (including Lists and exists, TODO exist)
-    let _ = visit_expressions(&statements, |expr| {
+    let _ = visit_expressions(statement, |expr| {
         match expr {
             Expr::BinaryOp { left, right, .. } => {
                 if let Expr::Value(ValueWithSpan { value, .. }) = &**right
@@ -92,47 +92,41 @@ pub fn get_type_of_binding_parameters(
         ControlFlow::<()>::Continue(())
     });
 
+
+
+    // LIMIT and OFFSET
+    let check_placeholder = |expr: &Expr| {
+        if matches!(
+            expr,
+            Expr::Value(ValueWithSpan {
+                value: Value::Placeholder(_),
+                ..
+            })
+        ) {
+            Ok(Type {
+                base_type: BaseType::Integer,
+                nullable: false, //dont care wht this is
+            })
+        } else {
+            Err("internal error? something went wrong. cant analyse LIMIT or OFFSET".to_string())
+        }
+    };
+
+        if let Statement::Query(query) = statement
+            && let Some(LimitClause::LimitOffset { limit, offset, .. }) = &query.limit_clause
+        {
+            // LIMIT
+            if let Some(limit_expr) = limit {
+                let x = check_placeholder(limit_expr);
+                types.push(x);
+            }
+
+            // OFFSET
+            if let Some(offset_struct) = offset {
+                let x = check_placeholder(&offset_struct.value);
+                types.push(x);
+            }
+    }
     types
-
-    // if let ControlFlow::Break(result) = visit_exp {
-    //     return types;
-    // } else {
-    //     return  types;
-    // }
-
-    // // LIMIT and OFFSET
-    // let check_placeholder = |expr: &Expr| {
-    //     if matches!(
-    //         expr,
-    //         Expr::Value(ValueWithSpan {
-    //             value: Value::Placeholder(_),
-    //             ..
-    //         })
-    //     ) {
-    //         println!("int");
-    //         Ok(Type {
-    //             base_type: BaseType::Integer,
-    //             nullable: false, //dont care wht this is
-    //         })
-    //     } else {
-    //         Err("internal error? something went wrong. cant analyse LIMIT or OFFSET".to_string())
-    //     }
-    // };
-
-    // for statement in statements {
-    //     if let Statement::Query(query) = statement
-    //         && let Some(LimitClause::LimitOffset { limit, offset, .. }) = query.limit_clause
-    //     {
-    //         // LIMIT
-    //         if let Some(limit_expr) = limit {
-    //             let x = check_placeholder(&limit_expr);
-    //         }
-
-    //         // OFFSET
-    //         if let Some(offset_struct) = offset {
-    //             let x = check_placeholder(&offset_struct.value);
-    //         }
-    //     }
-    // }
     // x
 }
