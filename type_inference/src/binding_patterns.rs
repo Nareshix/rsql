@@ -63,6 +63,13 @@ pub fn get_type_of_binding_parameters(
                     })
                 );
                 if low_is_ph || high_is_ph {
+                    // between often needs 2 type
+                    types.push(evaluate_expr_type(
+                        expr,
+                        &table_names_from_select,
+                        all_tables,
+                    ));
+
                     types.push(evaluate_expr_type(
                         expr,
                         &table_names_from_select,
@@ -72,7 +79,7 @@ pub fn get_type_of_binding_parameters(
             }
             _ => {}
         }
-      ControlFlow::<()>::Continue(())
+        ControlFlow::<()>::Continue(())
     });
 
     types
