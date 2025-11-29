@@ -33,21 +33,25 @@ fn convert_sqlite_to_rust_type(sql: String, nullable: bool) -> Type {
         Type {
             base_type: BaseType::Text,
             nullable,
+            contains_placeholder: false
         }
     } else if sql == "INTEGER" {
         Type {
             base_type: BaseType::Integer,
             nullable,
+            contains_placeholder: false
         }
     } else if sql == "REAL" {
         Type {
             base_type: BaseType::Real,
-            nullable,
+    nullable,
+    contains_placeholder: false
         }
     } else {
         Type {
             base_type: BaseType::Null,
             nullable,
+            contains_placeholder: false
         }
     }
     // TODO bool

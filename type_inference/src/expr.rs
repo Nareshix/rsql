@@ -14,6 +14,7 @@ pub enum BaseType {
     Text,
     Null,
     Unknowns,
+    PlaceHolder,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -21,6 +22,7 @@ pub struct Type {
     pub base_type: BaseType,
     /// true if theres a chance of it being null, else false
     pub nullable: bool,
+    pub contains_placeholder: bool,
 }
 
 /// https://docs.rs/sqlparser/latest/sqlparser/ast/enum.Expr.html, version 0.59.0
@@ -97,15 +99,15 @@ pub fn evaluate_expr_type(
              match value {
                 Value::Number(num, _) => {
                     if num.contains("."){
-                        return Ok(Type { base_type: BaseType::Real, nullable: false })
+                        return Ok(Type { base_type: BaseType::Real, nullable: false, contains_placeholder: false })
                     }
-                    Ok(Type { base_type: BaseType::Integer, nullable: false })
+                    Ok(Type { base_type: BaseType::Integer, nullable: false, contains_placeholder: false })
                 }
-                Value::SingleQuotedString(_) => Ok(Type { base_type: BaseType::Text, nullable: false }),
-                Value::DoubleQuotedString(_) => Ok(Type { base_type: BaseType::Text, nullable: false }),
-                Value::Boolean(_) => Ok(Type { base_type: BaseType::Bool, nullable: false }),
-                Value::Null => Ok(Type { base_type: BaseType::Null, nullable: true }),
-                Value::Placeholder(_) => todo!(),
+                Value::SingleQuotedString(_) => Ok(Type { base_type: BaseType::Text, nullable: false, contains_placeholder: false }),
+                Value::DoubleQuotedString(_) => Ok(Type { base_type: BaseType::Text, nullable: false, contains_placeholder: false }),
+                Value::Boolean(_) => Ok(Type { base_type: BaseType::Bool, nullable: false, contains_placeholder: false }),
+                Value::Null => Ok(Type { base_type: BaseType::Null, nullable: true, contains_placeholder: false }),
+                Value::Placeholder(_) => Ok(Type {base_type: BaseType::PlaceHolder, nullable: true, contains_placeholder: true}),
 
                 _ => Err(format!("{value} is an invalid type. Make sure it is TEXT, INTEGER or REAL"))
 
@@ -124,7 +126,7 @@ pub fn evaluate_expr_type(
         | Expr::IsNormalized {..} // i dont think sqlite has TODO
         | Expr::IsUnknown(..) // i dont think sqlite has TODO
         | Expr::IsNotUnknown(..) // i dont think sqlite has TODO
-        | Expr::Exists { .. } => Ok(Type { base_type: BaseType::Bool, nullable: false }),
+        | Expr::Exists { .. } => Ok(Type { base_type: BaseType::Bool, nullable: false, contains_placeholder: false }), // TODO placeholder
         // TODO Exists can be null
 
         // Expr::ILike { .. }
@@ -151,7 +153,7 @@ pub fn evaluate_expr_type(
         | Expr::AnyOp { .. }
         | Expr::InSubquery { .. }
         | Expr::InUnnest { .. } // i dont think sqlite has TODO
-        | Expr::AllOp {.. } => Ok(Type { base_type: BaseType::Bool, nullable: true }),
+        | Expr::AllOp {.. } => Ok(Type { base_type: BaseType::Bool, nullable: true, contains_placeholder: false }), //todo p;laceholder
 
         Expr::BinaryOp { left, op, right } => {
             let left_type = evaluate_expr_type(left, table_names_from_select, all_tables)?;
@@ -167,24 +169,27 @@ pub fn evaluate_expr_type(
                 | BinaryOperator::LtEq
                 | BinaryOperator::And
                 | BinaryOperator::Or => {
-                    let is_compatible = match (&left_type.base_type, &right_type.base_type) {
-                    (BaseType::Integer, BaseType::Integer) => true,
-                    (BaseType::Real, BaseType::Real) => true,
-                    (BaseType::Text, BaseType::Text) => true,
-                    (BaseType::Bool, BaseType::Bool) => true,
+                let (is_compatible, has_placeholder) = match (&left_type.base_type, &right_type.base_type) {
+                    (BaseType::Integer, BaseType::Integer) => (true, false),
+                    (BaseType::Real, BaseType::Real) => (true, false),
+                    (BaseType::Text, BaseType::Text) => (true, false),
+                    (BaseType::Bool, BaseType::Bool) => (true, false),
+                    (BaseType::PlaceHolder, _) | (_, BaseType::PlaceHolder) => (true, true),
                     // Allow comparing Int vs Real
-                    (BaseType::Integer, BaseType::Real) | (BaseType::Real, BaseType::Integer) => true,
-                    (BaseType::Null, _) | (_, BaseType::Null) => true, // Null compares to anything usually
-                    _ => false,
+                    (BaseType::Integer, BaseType::Real) | (BaseType::Real, BaseType::Integer) => (true, false),
+                    (BaseType::Null, _) | (_, BaseType::Null) => (true, false),
+                    _ => (false, false),
                 };
-
                 if !is_compatible {
                         Err(format!(
                             "Cannot compare Types  '{:?}' and '{:?}'.",
-                            left_type.base_type, right_type.base_type                        ))
+                            left_type.base_type, right_type.base_type))
 
+                } else if has_placeholder {
+                    Ok(Type { base_type: BaseType::Bool, nullable: true, contains_placeholder: true })
                 } else {
-                    Ok(Type { base_type: BaseType::Bool, nullable: true })
+                    Ok(Type { base_type: BaseType::Bool, nullable: true, contains_placeholder: false })
+
                 }
 
                 },
@@ -203,31 +208,43 @@ pub fn evaluate_expr_type(
                     };
 
 
-                    let base = match (&left_type.base_type, &right_type.base_type) {
-                        (BaseType::Null, _) | (_, BaseType::Null) => BaseType::Null,
+                    let (base, has_placeholder) = match (&left_type.base_type, &right_type.base_type) {
+                        (BaseType::Null, _) | (_, BaseType::Null) => (BaseType::Null, false),
+                        (BaseType::PlaceHolder, BaseType::Integer) | (BaseType::Integer, BaseType::PlaceHolder) => (BaseType::Integer, true),
+                        (BaseType::PlaceHolder, BaseType::Real) | (BaseType::Real, BaseType::PlaceHolder) => (BaseType::Real, true),
                         // Only allow numeric combinations
                         (BaseType::Real, BaseType::Real)
                         | (BaseType::Real, BaseType::Integer)
-                        | (BaseType::Integer, BaseType::Real) => BaseType::Real,
-                        (BaseType::Integer, BaseType::Integer) => BaseType::Integer,
-                        _ => BaseType::Unknowns
+                        | (BaseType::Integer, BaseType::Real) => (BaseType::Real, false),
+                        (BaseType::Integer, BaseType::Integer) => (BaseType::Integer, false),
+                        _ => (BaseType::Unknowns, false)
                     };
 
                     if base == BaseType::Unknowns {
-                    return Err(format!("Cannot apply operator '{:?}' to types '{:?}' and '{:?}'. Arithmetic requires numeric types.",
+                        return Err(format!("Cannot apply operator '{:?}' to types '{:?}' and '{:?}'. Arithmetic requires numeric types.",
                             op, left_type.base_type, right_type.base_type
                             //TODO left, right
                         ))
-
                     }
-                    Ok(Type {
+
+                    if has_placeholder {
+                        Ok(Type {
+                            base_type: base,
+                            nullable,
+                            contains_placeholder:true
+                        })
+                    } else {
+                        Ok(Type {
                         base_type: base,
                         nullable,
+                        contains_placeholder: false
                     })
+                    }
+
                 },
 
                 // String concat always returns string
-                BinaryOperator::StringConcat => Ok(Type { base_type: BaseType::Text, nullable: true }),
+                BinaryOperator::StringConcat => Ok(Type { base_type: BaseType::Text, nullable: true, contains_placeholder: false }),
 
                 // TODO bitwise operation in BinaryOperator
                 // TODO REGEXP. it is sqlite specific
@@ -265,7 +282,7 @@ pub fn evaluate_expr_type(
                 | DataType::BigInt(_)
                 | DataType::BigIntUnsigned(_)
                 | DataType::Int2(_)
-                | DataType::Int8(_) => Ok(Type { base_type: BaseType::Integer, nullable: true }),
+                | DataType::Int8(_) => Ok(Type { base_type: BaseType::Integer, nullable: true, contains_placeholder: false }),
 
                 DataType::Character(_)
                 | DataType::Varchar(_)
@@ -275,7 +292,7 @@ pub fn evaluate_expr_type(
                 // sqlparser does not have  NATIVE CHARACTER(70)
                 | DataType::Nvarchar(_)
                 | DataType::Text
-                | DataType::Clob(_) => Ok(Type { base_type: BaseType::Text, nullable: true }),
+                | DataType::Clob(_) => Ok(Type { base_type: BaseType::Text, nullable: true, contains_placeholder: false }),
 
                 // TODO
                 // DataType::Blob(_) =>
@@ -285,7 +302,7 @@ pub fn evaluate_expr_type(
                 | DataType::DoublePrecision
                 | DataType::Numeric(_) //undocumented but works
                 | DataType::Decimal(_) //undocumented but works
-                | DataType::Float(_) => Ok(Type { base_type: BaseType::Real, nullable: true }),
+                | DataType::Float(_) => Ok(Type { base_type: BaseType::Real, nullable: true, contains_placeholder: false }),
 
 
                 // TODO Numeric
@@ -313,7 +330,7 @@ pub fn evaluate_expr_type(
         Expr::Function(func) => {
             let name = func.name.to_string().to_uppercase();
 
-            let mut input_type = Type { base_type: BaseType::Unknowns, nullable: false };
+            let mut input_type = Type { base_type: BaseType::Unknowns, nullable: false, contains_placeholder: false };
             let mut any_arg_nullable = false;
             let mut all_args_nullable = true; // track for COALESCE and ifnull
 
@@ -357,50 +374,58 @@ pub fn evaluate_expr_type(
 
                 "COUNT" => Ok(Type {
                     base_type: BaseType::Integer,
-                    nullable: false // Correct: Count never returns NULL
+                    nullable: false, // Correct: Count never returns NULL
+                    contains_placeholder: false
                 }),
 
                 "AVG" => Ok(Type {
                     base_type: BaseType::Real,
-                    nullable: true // Correct: AVG([]) is NULL
+                    nullable: true, // Correct: AVG([]) is NULL
+                    contains_placeholder: false
                 }),
 
                 "SUM" | "MIN" | "MAX" => Ok(Type {
                     base_type: input_type.base_type,
-                    nullable: true // Correct: Aggregates on empty sets are NULL
+                    nullable: true, // Correct: Aggregates on empty sets are NULL
+                    contains_placeholder: false
                 }),
 
                 // SQLite "TOTAL" is like SUM but returns 0.0 on empty set
                 "TOTAL" => Ok(Type {
                     base_type: BaseType::Real,
-                    nullable: false
+                    nullable: false,
+                    contains_placeholder: false
                 }),
 
-                "RANDOM" => Ok(Type { base_type: BaseType::Integer, nullable: false }),
+                "RANDOM" => Ok(Type { base_type: BaseType::Integer, nullable: false, contains_placeholder: false }),
 
                 // Standard NULL propagation
                 "LENGTH" | "OCTET_LENGTH" | "INSTR" | "UNICODE" |
                 "SIGN" | "GLOB" | "LIKE" | "ABS" | "ROUND" => Ok(Type {
                     base_type: if name == "ROUND" { BaseType::Real } else { BaseType::Integer },
-                    nullable: any_arg_nullable
+                    nullable: any_arg_nullable,
+                    contains_placeholder: false
                 }),
 
                 // String funcs
                 "LOWER" | "UPPER" | "LTRIM" | "RTRIM" | "TRIM" |
                 "REPLACE" | "SUBSTR" | "SUBSTRING" | "UNISTR" | "UNISTR_QUOTE" => Ok(Type {
                     base_type: BaseType::Text,
-                    nullable: any_arg_nullable
+                    nullable: any_arg_nullable,
+                    contains_placeholder: false
                 }),
 
                 "CONCAT" | "CONCAT_WS" => Ok(Type {
                     base_type: BaseType::Text,
-                    nullable: false
+                    nullable: false,
+                    contains_placeholder: false
                 }),
 
                 //  COALESCE is only nullable if ALL args are nullable
                 "COALESCE" | "IFNULL" => Ok(Type {
                     base_type: input_type.base_type,
-                    nullable: all_args_nullable
+                    nullable: all_args_nullable,
+                    contains_placeholder: false
                 }),
 
 
@@ -408,7 +433,8 @@ pub fn evaluate_expr_type(
                 // https://sqlite.org/lang_mathfunc.html
                 "PI" => Ok(Type {
                     base_type: BaseType::Real,
-                    nullable: false // PI is never NULL
+                    nullable: false, // PI is never NULL
+                    contains_placeholder: false
                 }),
 
 
@@ -417,7 +443,8 @@ pub fn evaluate_expr_type(
                 "COSH" | "SINH" | "TANH" |
                 "EXP" | "DEGREES" | "RADIANS" => Ok(Type {
                     base_type: BaseType::Real,
-                    nullable: any_arg_nullable
+                    nullable: any_arg_nullable,
+                    contains_placeholder: false
                 }),
 
                 // can return null cuz these functions are not definde for all real numbers
@@ -426,21 +453,24 @@ pub fn evaluate_expr_type(
                 "LN" | "LOG" | "LOG10" | "LOG2" |
                 "POW" | "POWER" | "SQRT" => Ok(Type {
                     base_type: BaseType::Real,
-                    nullable: true // Always True, because Math Errors = NULL
+                    nullable: true, // Always True, because Math Errors = NULL
+                    contains_placeholder: false
                 }),
 
 
                 // i know ceil and floor wont go through but no harm adding it
                 "CEIL" | "CEILING" | "FLOOR" | "TRUNC" => Ok(Type {
                     base_type: BaseType::Real,
-                    nullable: any_arg_nullable
+                    nullable: any_arg_nullable,
+                    contains_placeholder: false
                 }),
 
                 // MOD(X,Y) returns the type of X/Y.
                 // If inputs are Int, result is Int. If inputs are Float, result is Float.
                 "MOD" => Ok(Type {
                     base_type: input_type.base_type,
-                    nullable: any_arg_nullable
+                    nullable: any_arg_nullable,
+                    contains_placeholder: false
                 }),
 
 
@@ -450,17 +480,20 @@ pub fn evaluate_expr_type(
 
                 "DATE" | "TIME" | "DATETIME" | "STRFTIME" | "TIMEDIFF" => Ok(Type {
                     base_type: BaseType::Text,
-                    nullable: true
+                    nullable: true,
+                    contains_placeholder: false
                 }),
 
                 "JULIANDAY" => Ok(Type {
                     base_type: BaseType::Real,
-                    nullable: true
+                    nullable: true,
+                    contains_placeholder: false
                 }),
 
                 "UNIXEPOCH" => Ok(Type {
                     base_type: BaseType::Integer,
-                    nullable: true
+                    nullable: true,
+                    contains_placeholder: false
                 }),
 
 
@@ -470,19 +503,22 @@ pub fn evaluate_expr_type(
             // Integer Ranking Functions (Always non-null)
             "ROW_NUMBER" | "RANK" | "DENSE_RANK" => Ok(Type {
                 base_type: BaseType::Integer,
-                nullable: false
+                nullable: false,
+                contains_placeholder: false
             }),
 
             // NTILE takes an argument. If arg is valid, it returns Int.
             "NTILE" => Ok(Type {
                 base_type: BaseType::Integer,
-                nullable: any_arg_nullable
+                nullable: any_arg_nullable,
+                contains_placeholder: false
             }),
 
             // Statistical Ranking (Always Real, between 0 and 1)
             "PERCENT_RANK" | "CUME_DIST" => Ok(Type {
                 base_type: BaseType::Real,
-                nullable: false
+                nullable: false,
+                contains_placeholder: false
             }),
 
             // Value Functions (Offset)
@@ -491,7 +527,8 @@ pub fn evaluate_expr_type(
             // Since we can't easily check the default value type here, nullable: true is safest. TODO
             "LEAD" | "LAG" | "FIRST_VALUE" | "LAST_VALUE" | "NTH_VALUE" => Ok(Type {
                 base_type: input_type.base_type, // Inferred from the 1st argument
-                nullable: true
+                nullable: true,
+                contains_placeholder: false
             }),
 
                 _ => Err(format!("invalid {}", name.as_str()))
@@ -508,7 +545,8 @@ pub fn evaluate_expr_type(
             let input = evaluate_expr_type(expr, table_names_from_select, all_tables)?;
             Ok(Type {
                 base_type: BaseType::Real, // Always float
-                nullable: input.nullable   // Null propagates
+                nullable: input.nullable,   // Null propagates
+                contains_placeholder: false
             })
         }
 
@@ -517,7 +555,8 @@ pub fn evaluate_expr_type(
             let input = evaluate_expr_type(expr, table_names_from_select, all_tables)?;
             Ok(Type {
                 base_type: BaseType::Text,
-                nullable: input.nullable
+                nullable: input.nullable,
+                contains_placeholder: false
             })
         }
 
@@ -525,7 +564,7 @@ pub fn evaluate_expr_type(
 
     Expr::Case { conditions, else_result, .. } => {
             // FIX: Initialize nullable to false. We only flip it to true if necessary.
-            let mut output_type = Type { base_type: BaseType::Null, nullable: false };
+            let mut output_type = Type { base_type: BaseType::Null, nullable: false, contains_placeholder: false };
 
             let mut result_types = Vec::new();
             for cond in conditions {
