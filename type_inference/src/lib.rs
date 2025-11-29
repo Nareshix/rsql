@@ -5,6 +5,7 @@ pub fn add(left: u64, right: u64) -> u64 {
 mod expr;
 mod select_patterns;
 mod table;
+mod binding_patterns;
 
 #[cfg(test)]
 mod tests {
