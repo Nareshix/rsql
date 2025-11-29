@@ -12,9 +12,13 @@
 
 for binding parameter, general pattern
 
-1. expr, op, binding_parameter
+1. expr, op, binding_parameter [x]
 2. functions
-3. Between clause
+3. Between clause [x]
 4. INSERT INTO users (name, email) VALUES (?, ?);
 5. Case (nth special but keep in mind)
-6. LIMIT and OFFSET
+6. LIMIT and OFFSET [x]
+7. Update set
+8. DELETE WHERE
+9. LIKE [x]
+10. HAVING
