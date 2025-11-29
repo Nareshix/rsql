@@ -15,18 +15,19 @@ use crate::{
 pub fn get_type_of_binding_parameters(
     sql: &str,
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
-) -> Result<Type, String> {
+) -> Vec<Result<Type, String>> {
     let statements = Parser::parse_sql(&SQLiteDialect {}, sql).unwrap();
+    let table_names_from_select = get_table_names(sql);
+    let mut types = Vec::new();
 
     // LHS op RHS (including Lists and exists, TODO exist)
-    let table_names_from_select = get_table_names(sql);
-    let visit_exp = visit_expressions(&statements, |expr| {
+    let _ = visit_expressions(&statements, |expr| {
         match expr {
             Expr::BinaryOp { left, right, .. } => {
                 if let Expr::Value(ValueWithSpan { value, .. }) = &**right
                     && let Value::Placeholder(_) = value
                 {
-                    return ControlFlow::Break(evaluate_expr_type(
+                    types.push(evaluate_expr_type(
                         left,
                         &table_names_from_select,
                         all_tables,
@@ -34,18 +35,16 @@ pub fn get_type_of_binding_parameters(
                 }
             }
             Expr::InList { expr, list, .. } => {
-                // assume that all the InList contains ?
                 if let Expr::Value(ValueWithSpan { value, .. }) = &list[0]
                     && let Value::Placeholder(_) = value
                 {
-                    return ControlFlow::Break(evaluate_expr_type(
+                    types.push(evaluate_expr_type(
                         expr,
                         &table_names_from_select,
                         all_tables,
                     ));
                 }
             }
-
             Expr::Between {
                 expr, low, high, ..
             } => {
@@ -63,9 +62,8 @@ pub fn get_type_of_binding_parameters(
                         ..
                     })
                 );
-
                 if low_is_ph || high_is_ph {
-                    return ControlFlow::Break(evaluate_expr_type(
+                    types.push(evaluate_expr_type(
                         expr,
                         &table_names_from_select,
                         all_tables,
@@ -74,50 +72,50 @@ pub fn get_type_of_binding_parameters(
             }
             _ => {}
         }
-
-        ControlFlow::Continue(())
+      ControlFlow::<()>::Continue(())
     });
 
-    if let ControlFlow::Break(result) = visit_exp {
-        return result;
-    }
+    types
 
+    // if let ControlFlow::Break(result) = visit_exp {
+    //     return types;
+    // } else {
+    //     return  types;
+    // }
 
-    // LIMIT and OFFSET
-    let check_placeholder = |expr: &Expr| {
-        if matches!(
-            expr,
-            Expr::Value(ValueWithSpan {
-                value: Value::Placeholder(_),
-                ..
-            })
-        ) {
-            println!("int");
-            Ok(Type {
-                base_type: BaseType::Integer,
-                nullable: false, //dont care wht this is
-            })
-        } else {
-            Err("internal error? something went wrong. cant analyse LIMIT or OFFSET".to_string())
-        }
-    };
+    // // LIMIT and OFFSET
+    // let check_placeholder = |expr: &Expr| {
+    //     if matches!(
+    //         expr,
+    //         Expr::Value(ValueWithSpan {
+    //             value: Value::Placeholder(_),
+    //             ..
+    //         })
+    //     ) {
+    //         println!("int");
+    //         Ok(Type {
+    //             base_type: BaseType::Integer,
+    //             nullable: false, //dont care wht this is
+    //         })
+    //     } else {
+    //         Err("internal error? something went wrong. cant analyse LIMIT or OFFSET".to_string())
+    //     }
+    // };
 
-    for statement in statements {
-        if let Statement::Query(query) = statement
-            && let Some(LimitClause::LimitOffset { limit, offset, .. }) = query.limit_clause
-        {
-            // LIMIT
-            if let Some(limit_expr) = limit {
-                let x =check_placeholder(&limit_expr);
-                return x
-            }
+    // for statement in statements {
+    //     if let Statement::Query(query) = statement
+    //         && let Some(LimitClause::LimitOffset { limit, offset, .. }) = query.limit_clause
+    //     {
+    //         // LIMIT
+    //         if let Some(limit_expr) = limit {
+    //             let x = check_placeholder(&limit_expr);
+    //         }
 
-            // OFFSET
-            if let Some(offset_struct) = offset {
-                let x = check_placeholder(&offset_struct.value);
-                return x
-            }
-        }
-    }
-    Err("todo".to_string())
+    //         // OFFSET
+    //         if let Some(offset_struct) = offset {
+    //             let x = check_placeholder(&offset_struct.value);
+    //         }
+    //     }
+    // }
+    // x
 }
