@@ -6,12 +6,13 @@ use sqlparser::{
     parser::Parser,
 };
 
-use crate::expr::{BaseType, evaluate_expr_type};
+use crate::expr::evaluate_expr_type;
 use crate::{
     expr::Type,
     table::{ColumnInfo, get_table_names},
 };
 
+#[allow(unused)]
 pub fn get_type_of_binding_parameters(
     sql: &str,
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
@@ -73,6 +74,17 @@ pub fn get_type_of_binding_parameters(
                             all_tables,
                         ));
                     }
+                }
+            }
+            Expr::Like { expr, pattern, .. } => {
+                if let Expr::Value(ValueWithSpan { value, .. }) = &**pattern
+                    && let Value::Placeholder(_) = value
+                {
+                    types.push(evaluate_expr_type(
+                        expr,
+                        &table_names_from_select,
+                        all_tables,
+                    ));
                 }
             }
             _ => {}
