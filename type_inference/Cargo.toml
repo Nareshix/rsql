@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-sqlparser = "0.59.0"
+sqlparser = {version = "0.59.0", features = ["visitor"]}
