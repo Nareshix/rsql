@@ -38,11 +38,13 @@ pub fn get_type_of_binding_parameters(
                 if let Expr::Value(ValueWithSpan { value, .. }) = &list[0]
                     && let Value::Placeholder(_) = value
                 {
-                    types.push(evaluate_expr_type(
-                        expr,
-                        &table_names_from_select,
-                        all_tables,
-                    ));
+                    for _ in 0..list.len() {
+                        types.push(evaluate_expr_type(
+                            expr,
+                            &table_names_from_select,
+                            all_tables,
+                        ));
+                    }
                 }
             }
             Expr::Between {
@@ -64,17 +66,13 @@ pub fn get_type_of_binding_parameters(
                 );
                 if low_is_ph || high_is_ph {
                     // between often needs 2 type
-                    types.push(evaluate_expr_type(
-                        expr,
-                        &table_names_from_select,
-                        all_tables,
-                    ));
-
-                    types.push(evaluate_expr_type(
-                        expr,
-                        &table_names_from_select,
-                        all_tables,
-                    ));
+                    for _ in 0..2 {
+                        types.push(evaluate_expr_type(
+                            expr,
+                            &table_names_from_select,
+                            all_tables,
+                        ));
+                    }
                 }
             }
             _ => {}
