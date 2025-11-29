@@ -28,7 +28,7 @@ pub struct Type {
 /// we will patern match all 63 (yep...). Some of them are not supported by sqlite so they will be skipped and commented.
 pub fn evaluate_expr_type(
     expr: &Expr,
-    table_names_from_select: Vec<String>,
+    table_names_from_select: &Vec<String>,
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
 ) -> Result<Type, String> {
     match expr {
@@ -154,7 +154,7 @@ pub fn evaluate_expr_type(
         | Expr::AllOp {.. } => Ok(Type { base_type: BaseType::Bool, nullable: true }),
 
         Expr::BinaryOp { left, op, right } => {
-            let left_type = evaluate_expr_type(left, table_names_from_select.clone(), all_tables)?;
+            let left_type = evaluate_expr_type(left, table_names_from_select, all_tables)?;
             let right_type = evaluate_expr_type(right, table_names_from_select, all_tables)?;
 
             match op {
@@ -320,7 +320,7 @@ pub fn evaluate_expr_type(
             if let FunctionArguments::List(list) = &func.args {
                 for arg in &list.args {
                     if let FunctionArg::Unnamed(FunctionArgExpr::Expr(expr)) = arg {
-                        let arg_type = evaluate_expr_type(expr, table_names_from_select.clone(), all_tables)?;
+                        let arg_type = evaluate_expr_type(expr, table_names_from_select, all_tables)?;
 
                         if arg_type.nullable {
                             any_arg_nullable = true;
@@ -529,11 +529,11 @@ pub fn evaluate_expr_type(
 
             let mut result_types = Vec::new();
             for cond in conditions {
-                result_types.push(evaluate_expr_type(&cond.result, table_names_from_select.clone(), all_tables)?);
+                result_types.push(evaluate_expr_type(&cond.result, table_names_from_select, all_tables)?);
             }
 
             if let Some(else_expr) = else_result {
-                result_types.push(evaluate_expr_type(else_expr, table_names_from_select.clone(), all_tables)?);
+                result_types.push(evaluate_expr_type(else_expr, table_names_from_select, all_tables)?);
             } else {
                 output_type.nullable = true;
             }
