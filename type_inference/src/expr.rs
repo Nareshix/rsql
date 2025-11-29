@@ -187,7 +187,7 @@ pub fn evaluate_expr_type(
 
                 }
                 else {
-                    Ok(Type { base_type: BaseType::Bool, nullable: true, contains_placeholder: false })
+                    Ok(Type { base_type: BaseType::Bool, nullable: true, contains_placeholder: has_placeholder })
 
                 }
 
