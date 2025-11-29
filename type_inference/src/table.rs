@@ -1,6 +1,7 @@
 use std::collections::HashMap;
+use std::ops::ControlFlow;
 
-use sqlparser::ast::{ColumnOption, CreateTable, SetExpr, Statement, TableFactor};
+use sqlparser::ast::{ColumnOption, CreateTable, Statement, visit_relations};
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 
@@ -98,53 +99,16 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
 #[allow(unused)]
 /// does not support ctes and subqueries
 pub fn get_table_names(sql: &str) -> Vec<String> {
-    let dialect = SQLiteDialect {};
-    let ast = Parser::parse_sql(&dialect, sql).unwrap();
-    let stmt = &ast[0];
+    let statements = Parser::parse_sql(&SQLiteDialect {}, sql).unwrap();
+    let mut visited = vec![];
+    let _ = visit_relations(&statements, |expr| {
+        visited.push(expr.to_string());
 
-    if let Statement::Query(query) = stmt {
-        let mut table_names = Vec::new();
+        ControlFlow::<()>::Continue(())
+    });
 
-        // ignore  query.with (CTEs)
-        if let SetExpr::Select(select) = &*query.body {
-            for table_with_joins in &select.from {
-                // Check the main table in the FROM clause
-                extract_table(&table_with_joins.relation, &mut table_names);
+    visited
 
-                // Iterate over any JOINs attached to this table
-                for join in &table_with_joins.joins {
-                    extract_table(&join.relation, &mut table_names);
-                }
-            }
-        }
-
-        table_names
-    } else {
-        panic!("omg")
-    }
-}
-
-fn extract_table(relation: &TableFactor, table_names: &mut Vec<String>) {
-    match relation {
-        TableFactor::Table { name, .. } => {
-            table_names.push(name.to_string());
-        }
-
-        // FROM (SELECT ...), ignore subqueries
-        TableFactor::Derived { .. } => {}
-
-        // Handle nested joins
-        TableFactor::NestedJoin {
-            table_with_joins, ..
-        } => {
-            extract_table(&table_with_joins.relation, table_names);
-            // handles flatteed joins
-            for join in &table_with_joins.joins {
-                extract_table(&join.relation, table_names);
-            }
-        }
-        _ => {}
-    }
 }
 
 // #[cfg(test)]
