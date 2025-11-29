@@ -65,15 +65,21 @@ pub fn get_type_of_binding_parameters(
                         ..
                     })
                 );
-                if low_is_ph || high_is_ph {
-                    // between often needs 2 type
-                    for _ in 0..2 {
-                        types.push(evaluate_expr_type(
-                            expr,
-                            &table_names_from_select,
-                            all_tables,
-                        ));
-                    }
+
+                let mut num = 0;
+
+                if low_is_ph {
+                    num += 1
+                }
+                if high_is_ph {
+                    num += 1
+                }
+                for _ in 0..num {
+                    types.push(evaluate_expr_type(
+                        expr,
+                        &table_names_from_select,
+                        all_tables,
+                    ));
                 }
             }
             Expr::Like { expr, pattern, .. } => {
@@ -91,8 +97,6 @@ pub fn get_type_of_binding_parameters(
         }
         ControlFlow::<()>::Continue(())
     });
-
-
 
     // LIMIT and OFFSET
     let check_placeholder = |expr: &Expr| {
@@ -112,20 +116,20 @@ pub fn get_type_of_binding_parameters(
         }
     };
 
-        if let Statement::Query(query) = statement
-            && let Some(LimitClause::LimitOffset { limit, offset, .. }) = &query.limit_clause
-        {
-            // LIMIT
-            if let Some(limit_expr) = limit {
-                let x = check_placeholder(limit_expr);
-                types.push(x);
-            }
+    if let Statement::Query(query) = statement
+        && let Some(LimitClause::LimitOffset { limit, offset, .. }) = &query.limit_clause
+    {
+        // LIMIT
+        if let Some(limit_expr) = limit {
+            let x = check_placeholder(limit_expr);
+            types.push(x);
+        }
 
-            // OFFSET
-            if let Some(offset_struct) = offset {
-                let x = check_placeholder(&offset_struct.value);
-                types.push(x);
-            }
+        // OFFSET
+        if let Some(offset_struct) = offset {
+            let x = check_placeholder(&offset_struct.value);
+            types.push(x);
+        }
     }
     types
     // x
