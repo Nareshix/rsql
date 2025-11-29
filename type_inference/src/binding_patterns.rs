@@ -1,7 +1,10 @@
 use std::{collections::HashMap, ops::ControlFlow};
 
 use sqlparser::{
-    ast::{AssignmentTarget, Expr, LimitClause, ObjectName, ObjectNamePart, Statement, Value, ValueWithSpan, visit_expressions},
+    ast::{
+        AssignmentTarget, Expr, LimitClause, ObjectName, ObjectNamePart, Statement, Value,
+        ValueWithSpan, visit_expressions,
+    },
     dialect::SQLiteDialect,
     parser::Parser,
 };
@@ -24,29 +27,29 @@ pub fn get_type_of_binding_parameters(
     //Checks if it is Update and only one binding parameter SET = ?. any other expression in RHS would be resovled below
     if let Statement::Update { assignments, .. } = &statement {
         for assignment in assignments {
-            let evaluated_expr_type = evaluate_expr_type(&assignment.value, &table_names_from_select, all_tables);
+            let evaluated_expr_type =
+                evaluate_expr_type(&assignment.value, &table_names_from_select, all_tables);
             if let Ok(x) = evaluated_expr_type
-                && x.contains_placeholder{
-                    let assignment_target = &assignment.target;
-                    if let AssignmentTarget::ColumnName(c) = assignment_target {
-                        for col in &c.0 {
-                            if let ObjectNamePart::Identifier(ident) = col {
+                && x.contains_placeholder
+            {
+                let assignment_target = &assignment.target;
+                if let AssignmentTarget::ColumnName(c) = assignment_target {
+                    for col in &c.0 {
+                        if let ObjectNamePart::Identifier(ident) = col {
+                            // Wrap the Ident into an Expr::Identifier
+                            let expr_wrapper = Expr::Identifier(ident.clone());
 
-                                // Wrap the Ident into an Expr::Identifier
-                                let expr_wrapper = Expr::Identifier(ident.clone());
-
-                                types.push(evaluate_expr_type(
-                                    &expr_wrapper,
-                                    &table_names_from_select,
-                                    all_tables
-                                ));
-                            }
+                            types.push(evaluate_expr_type(
+                                &expr_wrapper,
+                                &table_names_from_select,
+                                all_tables,
+                            ));
                         }
                     }
-
-                    // types.push(evaluate_expr_type(&assignment.target, &table_names_from_select, all_tables));
                 }
 
+                // types.push(evaluate_expr_type(&assignment.target, &table_names_from_select, all_tables));
+            }
         }
     }
 
@@ -54,11 +57,22 @@ pub fn get_type_of_binding_parameters(
     let _ = visit_expressions(statement, |expr| {
         match expr {
             Expr::BinaryOp { left, right, .. } => {
+                // Check if RIGHT is the placeholder
                 if let Expr::Value(ValueWithSpan { value, .. }) = &**right
                     && let Value::Placeholder(_) = value
                 {
                     types.push(evaluate_expr_type(
                         left,
+                        &table_names_from_select,
+                        all_tables,
+                    ));
+                }
+                // Check if LEFT is the placeholder
+                else if let Expr::Value(ValueWithSpan { value, .. }) = &**left
+                    && let Value::Placeholder(_) = value
+                {
+                    types.push(evaluate_expr_type(
+                        right,
                         &table_names_from_select,
                         all_tables,
                     ));
@@ -142,7 +156,7 @@ pub fn get_type_of_binding_parameters(
             Ok(Type {
                 base_type: BaseType::Integer,
                 nullable: false, //dont care wht this is
-                contains_placeholder: true
+                contains_placeholder: true,
             })
         } else {
             Err("internal error? something went wrong. cant analyse LIMIT or OFFSET".to_string())
