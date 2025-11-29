@@ -28,21 +28,21 @@ pub fn get_type_of_binding_parameters(
             if let Ok(x) = evaluated_expr_type
                 && x.contains_placeholder{
                     let assignment_target = &assignment.target;
-            if let AssignmentTarget::ColumnName(c) = assignment_target {
-                for col in &c.0 {
-                    if let ObjectNamePart::Identifier(ident) = col {
+                if let AssignmentTarget::ColumnName(c) = assignment_target {
+                    for col in &c.0 {
+                        if let ObjectNamePart::Identifier(ident) = col {
 
-                        // Wrap the Ident into an Expr::Identifier
-                        let expr_wrapper = Expr::Identifier(ident.clone());
+                            // Wrap the Ident into an Expr::Identifier
+                            let expr_wrapper = Expr::Identifier(ident.clone());
 
-                        types.push(evaluate_expr_type(
-                            &expr_wrapper, // Pass the Expr, not the Ident
-                            &table_names_from_select,
-                            all_tables
-                        ));
+                            types.push(evaluate_expr_type(
+                                &expr_wrapper,
+                                &table_names_from_select,
+                                all_tables
+                            ));
+                        }
                     }
                 }
-            }
 
                     // types.push(evaluate_expr_type(&assignment.target, &table_names_from_select, all_tables));
                 }
