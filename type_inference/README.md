@@ -10,11 +10,11 @@ expr (bindings are ofen found on the RHS).
 
 - Note: if a specifc synax **ONLY** allows column, that is not an expression.
 
-- other common cases are LIMIT and OFFSET which are always int. HAVING  follows WHERE clause pattern. BETWEEN is a bit diff. Aggregate function with having, e.g. HAVING COUNT(*)> ?
+- other common cases are `LIMIT` and `OFFSET` which are always int. `HAVING`  follows WHERE clause pattern. `BETWEEN` is a bit diff. Aggregate function with having, e.g. HAVING COUNT(*)> ?
 
 - CTE and subquery are processed first. subquery are a bit harder as they break the left to right pattern, so focus on CTEs first
 
-- arguments in funciton usually have fixed types
+- arguments in funciton usually have fixed types. string concatenation is a special edge case ( | | )
 
 ## General guidelines
 -  evaluate the type of LHS, and RHS follows that type (assuming there is binding parameters on RHS)
