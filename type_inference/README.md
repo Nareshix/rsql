@@ -25,6 +25,9 @@ expr (bindings are ofen found on the RHS).
 
 - Dont forget about aliases. VERY IMPORTANT. aliases should be like "mapped"
 
+## Implementation
+1. 
+
 ## UPDATE
 1. The type of the col on the LHS (e.g. id) must be equivalent to RHS
 2.  **SET syntax isnt an expression.** Since, they only strictly allow col name, they are not an expression and needs to be handled seperately
@@ -72,6 +75,7 @@ VALUES(?,?,?)
 
 ## SELECT/DELETE
 - Grouped them together cuz they are very similar.
+- SELECT col_name op ? WHERE ..... col_name op ? is the expression and ? follows col_name
 - All they have to do is literally evaluate expression (in `WHERE` or `HAVING` Clause)
 
 
