@@ -158,6 +158,7 @@ pub fn evaluate_expr_type(
         Expr::BinaryOp { left, op, right } => {
             let left_type = evaluate_expr_type(left, table_names_from_select, all_tables)?;
             let right_type = evaluate_expr_type(right, table_names_from_select, all_tables)?;
+            let propagates_placeholder = left_type.contains_placeholder || right_type.contains_placeholder;
 
             match op {
                 // Comparisons always return Bool
@@ -169,81 +170,82 @@ pub fn evaluate_expr_type(
                 | BinaryOperator::LtEq
                 | BinaryOperator::And
                 | BinaryOperator::Or => {
-                let (is_compatible, has_placeholder) = match (&left_type.base_type, &right_type.base_type) {
-                    (BaseType::Integer, BaseType::Integer) => (true, false),
-                    (BaseType::Real, BaseType::Real) => (true, false),
-                    (BaseType::Text, BaseType::Text) => (true, false),
-                    (BaseType::Bool, BaseType::Bool) => (true, false),
-                    (BaseType::PlaceHolder, _) | (_, BaseType::PlaceHolder) => (true, true),
-                    // Allow comparing Int vs Real
-                    (BaseType::Integer, BaseType::Real) | (BaseType::Real, BaseType::Integer) => (true, false),
-                    (BaseType::Null, _) | (_, BaseType::Null) => (true, false),
-                    _ => (false, false),
-                };
-                if !is_compatible {
-                        Err(format!(
-                            "Cannot compare Types  '{:?}' and '{:?}'.",
-                            left_type.base_type, right_type.base_type))
+                      let are_comparable = match (&left_type.base_type, &right_type.base_type) {
+                        (BaseType::PlaceHolder, _) | (_, BaseType::PlaceHolder) => true, // Can always compare with ?
+                        (BaseType::Null, _) | (_, BaseType::Null) => true,               // Can always compare with NULL
+                        (BaseType::Integer, BaseType::Integer) => true,
+                        (BaseType::Real, BaseType::Real) => true,
+                        (BaseType::Text, BaseType::Text) => true,
+                        (BaseType::Bool, BaseType::Bool) => true,
+                        // Allow Numeric cross-comparison
+                        (BaseType::Integer, BaseType::Real) | (BaseType::Real, BaseType::Integer) => true,
+                        _ => false
+                    };
 
-                }
-                else {
-                    Ok(Type { base_type: BaseType::Bool, nullable: true, contains_placeholder: has_placeholder })
+                    if !are_comparable {
+                        return Err(format!("Cannot compare types '{:?}' and '{:?}'", left_type.base_type, right_type.base_type));
+                    }
 
-                }
-
+                    Ok(Type {
+                        base_type: BaseType::Bool,
+                        nullable: left_type.nullable || right_type.nullable,
+                        contains_placeholder: propagates_placeholder,
+                    })
                 },
+
 
                 BinaryOperator::Plus
                 | BinaryOperator::Minus
                 | BinaryOperator::Multiply
                 | BinaryOperator::Modulo
-                | BinaryOperator::Divide => {
+        | BinaryOperator::Divide => {
 
-                    // division and mod can result in NULL (when divided/mod by 0)
-                    let nullable = if *op == BinaryOperator::Divide || *op == BinaryOperator::Modulo {
-                        true
+            let resolved_base_type = match (&left_type.base_type, &right_type.base_type) {
+                // If one side is a raw placeholder (? + 1), take the type of the non raw placeholder.
+                (BaseType::PlaceHolder, t) | (t, BaseType::PlaceHolder) => {
+                    if *t == BaseType::PlaceHolder {
+                        // ? + ?
+                        return Err(format!("Unable to infer type '? {} ?'. Try Casting either one, or both of them", *op));
                     } else {
-                        left_type.nullable || right_type.nullable
-                    };
-
-
-                    let (base, has_placeholder) = match (&left_type.base_type, &right_type.base_type) {
-                        (BaseType::Null, _) | (_, BaseType::Null) => (BaseType::Null, false),
-                        (BaseType::PlaceHolder, BaseType::Integer) | (BaseType::Integer, BaseType::PlaceHolder) => (BaseType::Integer, true),
-                        (BaseType::PlaceHolder, BaseType::Real) | (BaseType::Real, BaseType::PlaceHolder) => (BaseType::Real, true),
-                        // Only allow numeric combinations
-                        (BaseType::Real, BaseType::Real)
-                        | (BaseType::Real, BaseType::Integer)
-                        | (BaseType::Integer, BaseType::Real) => (BaseType::Real, false),
-                        (BaseType::Integer, BaseType::Integer) => (BaseType::Integer, false),
-                        _ => (BaseType::Unknowns, false)
-                    };
-
-                    if base == BaseType::Unknowns {
-                        return Err(format!("Cannot apply operator '{:?}' to types '{:?}' and '{:?}'. Arithmetic requires numeric types.",
-                            op, left_type.base_type, right_type.base_type
-                            //TODO left, right
-                        ))
+                        *t
                     }
-
-                    if has_placeholder {
-                        Ok(Type {
-                            base_type: base,
-                            nullable,
-                            contains_placeholder:true
-                        })
-                    } else {
-                        Ok(Type {
-                        base_type: base,
-                        nullable,
-                        contains_placeholder: false
-                    })
-                    }
-
                 },
 
+                // 1 + NULL -> Result is NULL, but type should be Integer (nullable).
+                (BaseType::Null, t) | (t, BaseType::Null) => {
+                    if *t == BaseType::Null { BaseType::Null } else { *t }
+                },
+
+                (BaseType::Integer, BaseType::Integer) => BaseType::Integer,
+                (BaseType::Real, BaseType::Real)
+                | (BaseType::Integer, BaseType::Real)
+                | (BaseType::Real, BaseType::Integer) => BaseType::Real,
+
+                (BaseType::Unknowns, _) | (_, BaseType::Unknowns) => BaseType::Unknowns,
+
+                _ => return Err(format!(
+                    "Cannot apply math operator to types '{:?}' and '{:?}'",
+                    left_type.base_type, right_type.base_type
+                ))
+            };
+
+            let is_op_nullable = *op == BinaryOperator::Divide || *op == BinaryOperator::Modulo;
+            let resolved_nullable = left_type.nullable || right_type.nullable || is_op_nullable;
+
+            Ok(Type {
+                base_type: resolved_base_type,
+                nullable: resolved_nullable,
+                contains_placeholder: propagates_placeholder,
+            })
+        },
+
+
                 // String concat always returns string
-                BinaryOperator::StringConcat => Ok(Type { base_type: BaseType::Text, nullable: true, contains_placeholder: false }),
+                BinaryOperator::StringConcat => Ok(Type {
+                    base_type: BaseType::Text,
+                     nullable: left_type.nullable || right_type.nullable,
+                      contains_placeholder: propagates_placeholder
+                     }),
 
                 // TODO bitwise operation in BinaryOperator
                 // TODO REGEXP. it is sqlite specific
