@@ -41,7 +41,7 @@ impl Visitor for V<'_> {
     // it is guranteed for ? placeholder to always be used in an expression
     // and never standalone. The only time it is used standalone is in the
     // rare usage of SELECT ?,?,?... which will be handled by select_pattern.rs
-    fn pre_visit_expr(&mut self, expr: &Expr) -> ControlFlow<Self::Break> {
+    fn post_visit_expr(&mut self, expr: &Expr) -> ControlFlow<Self::Break> {
         match expr {
             Expr::BinaryOp { left, right, .. } => {
                 let lhs_expr_type =
