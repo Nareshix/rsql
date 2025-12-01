@@ -3,7 +3,7 @@ use std::{collections::HashMap, ops::ControlFlow};
 use sqlparser::{
     ast::{
         AssignmentTarget, Expr, LimitClause, ObjectName, ObjectNamePart, Statement, Value,
-        ValueWithSpan, visit_expressions,
+        ValueWithSpan, Visit, Visitor, visit_expressions,
     },
     dialect::SQLiteDialect,
     parser::Parser,
@@ -15,168 +15,162 @@ use crate::{
     table::{ColumnInfo, get_table_names},
 };
 
-#[allow(unused)]
-pub fn get_type_of_binding_parameters(
-    sql: &str,
-    all_tables: &HashMap<String, Vec<ColumnInfo>>,
-) -> Vec<Result<Type, String>> {
-    let statement = &Parser::parse_sql(&SQLiteDialect {}, sql).unwrap()[0];
-    let table_names_from_select = get_table_names(sql);
-    let mut types = Vec::new();
+// #[derive(Default)]
+#[derive(Debug)]
+struct V<'a> {
+    types: Vec<Type>,
+    table_names_from_select: &'a Vec<String>,
+    all_tables: &'a HashMap<String, Vec<ColumnInfo>>,
+}
 
-    //Checks if it is Update and only one binding parameter SET = ?. any other expression in RHS would be resovled below
-    if let Statement::Update { assignments, .. } = &statement {
-        for assignment in assignments {
-            let evaluated_expr_type =
-                evaluate_expr_type(&assignment.value, &table_names_from_select, all_tables);
-            if let Ok(x) = evaluated_expr_type
-                && x.contains_placeholder
-            {
-                let assignment_target = &assignment.target;
-                if let AssignmentTarget::ColumnName(c) = assignment_target {
-                    for col in &c.0 {
-                        if let ObjectNamePart::Identifier(ident) = col {
-                            // Wrap the Ident into an Expr::Identifier
-                            let expr_wrapper = Expr::Identifier(ident.clone());
+trait IntoControlFlow<T> {
+    fn into_cf(self) -> ControlFlow<String, T>;
+}
 
-                            types.push(evaluate_expr_type(
-                                &expr_wrapper,
-                                &table_names_from_select,
-                                all_tables,
-                            ));
-                        }
-                    }
-                }
-
-                // types.push(evaluate_expr_type(&assignment.target, &table_names_from_select, all_tables));
-            }
+impl<T> IntoControlFlow<T> for Result<T, String> {
+    fn into_cf(self) -> ControlFlow<String, T> {
+        match self {
+            Ok(v) => ControlFlow::Continue(v),
+            Err(e) => ControlFlow::Break(e),
         }
     }
+}
+impl Visitor for V<'_> {
+    type Break = String;
 
-    // LHS op RHS (including Lists and exists, TODO exist)
-    let _ = visit_expressions(statement, |expr| {
+    // it is guranteed for ? placeholder to always be used in an expression
+    // and never standalone. The only time it is used standalone is in the
+    // rare usage of SELECT ?,?,?... which will be handled by select_pattern.rs
+    fn pre_visit_expr(&mut self, expr: &Expr) -> ControlFlow<Self::Break> {
         match expr {
             Expr::BinaryOp { left, right, .. } => {
-                // Check if RIGHT is the placeholder
-                if let Expr::Value(ValueWithSpan { value, .. }) = &**right
-                    && let Value::Placeholder(_) = value
-                {
-                    types.push(evaluate_expr_type(
-                        left,
-                        &table_names_from_select,
-                        all_tables,
-                    ));
-                }
-                // Check if LEFT is the placeholder
-                else if let Expr::Value(ValueWithSpan { value, .. }) = &**left
-                    && let Value::Placeholder(_) = value
-                {
-                    types.push(evaluate_expr_type(
-                        right,
-                        &table_names_from_select,
-                        all_tables,
-                    ));
+                let lhs_expr_type =
+                    evaluate_expr_type(left, self.table_names_from_select, self.all_tables)
+                        .into_cf()?;
+                let rhs_expr_type =
+                    evaluate_expr_type(right, self.table_names_from_select, self.all_tables)
+                        .into_cf()?;
+
+                // it guaranteed for either LHS or RHS to have 1 ?.
+                // This is because if there is 2, it will be return as an error which is taken care of above
+                if lhs_expr_type.contains_placeholder || rhs_expr_type.contains_placeholder {
+                    self.types.push(lhs_expr_type);
                 }
             }
+
             Expr::InList { expr, list, .. } => {
-                // assumed all are ? in the list
-                if let Expr::Value(ValueWithSpan { value, .. }) = &list[0]
-                    && let Value::Placeholder(_) = value
-                {
-                    for _ in 0..list.len() {
-                        types.push(evaluate_expr_type(
-                            expr,
-                            &table_names_from_select,
-                            all_tables,
-                        ));
+                let lhs_expr_type =
+                    evaluate_expr_type(expr, self.table_names_from_select, self.all_tables)
+                        .into_cf()?;
+
+                if lhs_expr_type.contains_placeholder {
+                    self.types.push(lhs_expr_type.clone());
+                }
+
+                for expr in list {
+                    let rhs_expr_type =
+                        evaluate_expr_type(expr, self.table_names_from_select, self.all_tables)
+                            .into_cf()?;
+                    if rhs_expr_type.contains_placeholder {
+                        self.types.push(lhs_expr_type);
+                        break;
                     }
                 }
             }
+
             Expr::Between {
                 expr, low, high, ..
             } => {
-                let low_is_ph = matches!(
-                    &**low,
-                    Expr::Value(ValueWithSpan {
-                        value: Value::Placeholder(_),
-                        ..
-                    })
-                );
-                let high_is_ph = matches!(
-                    &**high,
-                    Expr::Value(ValueWithSpan {
-                        value: Value::Placeholder(_),
-                        ..
-                    })
-                );
+                let middle_expr_type =
+                    evaluate_expr_type(expr, self.table_names_from_select, self.all_tables)
+                        .into_cf()?;
+                let lhs_expr_type =
+                    evaluate_expr_type(low, self.table_names_from_select, self.all_tables)
+                        .into_cf()?;
+                let rhs_expr_type =
+                    evaluate_expr_type(high, self.table_names_from_select, self.all_tables)
+                        .into_cf()?;
 
-                let mut num = 0;
-
-                if low_is_ph {
-                    num += 1
-                }
-                if high_is_ph {
-                    num += 1
-                }
-                for _ in 0..num {
-                    types.push(evaluate_expr_type(
-                        expr,
-                        &table_names_from_select,
-                        all_tables,
-                    ));
+                if lhs_expr_type.contains_placeholder || rhs_expr_type.contains_placeholder {
+                    self.types.push(middle_expr_type);
                 }
             }
 
-            // LIKE
-            Expr::Like { expr, pattern, .. } => {
-                if let Expr::Value(ValueWithSpan { value, .. }) = &**pattern
-                    && let Value::Placeholder(_) = value
-                {
-                    types.push(evaluate_expr_type(
-                        expr,
-                        &table_names_from_select,
-                        all_tables,
-                    ));
+            Expr::Like {
+                expr,
+                pattern,
+                escape_char, //TODO, placeholder in escape_char
+                ..
+            } => {
+                let lhs_expr_type =
+                    evaluate_expr_type(expr, self.table_names_from_select, self.all_tables)
+                        .into_cf()?;
+                let rhs_expr_type =
+                    evaluate_expr_type(pattern, self.table_names_from_select, self.all_tables)
+                        .into_cf()?;
+
+                if lhs_expr_type.contains_placeholder || rhs_expr_type.contains_placeholder {
+                    self.types.push(lhs_expr_type);
                 }
             }
             _ => {}
         }
-        ControlFlow::<()>::Continue(())
-    });
+        ControlFlow::Continue(())
+    }
+}
 
-    // LIMIT and OFFSET
-    let check_placeholder = |expr: &Expr| {
-        if matches!(
-            expr,
-            Expr::Value(ValueWithSpan {
-                value: Value::Placeholder(_),
-                ..
-            })
-        ) {
-            Ok(Type {
-                base_type: BaseType::Integer,
-                nullable: false, //dont care wht this is
-                contains_placeholder: true,
-            })
-        } else {
-            Err("internal error? something went wrong. cant analyse LIMIT or OFFSET".to_string())
-        }
+#[allow(unused)]
+pub fn get_type_of_binding_parameters(
+    sql: &str,
+    all_tables: &HashMap<String, Vec<ColumnInfo>>,
+) -> Result<Vec<Type>, String> {
+    let statement = &Parser::parse_sql(&SQLiteDialect {}, sql).unwrap()[0];
+    let table_names_from_select = &get_table_names(sql);
+    let mut types = Vec::new();
+
+    let mut visitor = V {
+        all_tables,
+        table_names_from_select,
+        types,
     };
 
-    if let Statement::Query(query) = statement
-        && let Some(LimitClause::LimitOffset { limit, offset, .. }) = &query.limit_clause
-    {
-        // LIMIT
-        if let Some(limit_expr) = limit {
-            let x = check_placeholder(limit_expr);
-            types.push(x);
-        }
-
-        // OFFSET
-        if let Some(offset_struct) = offset {
-            let x = check_placeholder(&offset_struct.value);
-            types.push(x);
-        }
+    match statement.visit(&mut visitor) {
+        ControlFlow::Break(err_msg) => Err(err_msg),
+        ControlFlow::Continue(_) => Ok(visitor.types),
     }
-    types
+
+    // LIMIT and OFFSET
+    // let check_placeholder = |expr: &Expr| {
+    //     if matches!(
+    //         expr,
+    //         Expr::Value(ValueWithSpan {
+    //             value: Value::Placeholder(_),
+    //             ..
+    //         })
+    //     ) {
+    //         Ok(Type {
+    //             base_type: BaseType::Integer,
+    //             nullable: false, //dont care wht this is
+    //             contains_placeholder: true,
+    //         })
+    //     } else {
+    //         Err("internal error? something went wrong. cant analyse LIMIT or OFFSET".to_string())
+    //     }
+    // };
+
+    // if let Statement::Query(query) = statement
+    //     && let Some(LimitClause::LimitOffset { limit, offset, .. }) = &query.limit_clause
+    // {
+    //     // LIMIT
+    //     if let Some(limit_expr) = limit {
+    //         let x = check_placeholder(limit_expr);
+    //         types.push(x);
+    //     }
+
+    //     // OFFSET
+    //     if let Some(offset_struct) = offset {
+    //         let x = check_placeholder(&offset_struct.value);
+    //         types.push(x);
+    //     }
+    // }
 }
