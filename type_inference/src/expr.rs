@@ -34,23 +34,34 @@ pub fn evaluate_expr_type(
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
 ) -> Result<Type, String> {
     match expr {
-        // We are assuming that there will strictly be one table only. If one is using more than 1 table.
-        // he should be more explicit (compile time check) and would be handled in CompoundIdentifier.
         Expr::Identifier(ident) => {
-            // TODO, span can possibly be used for better error handlin due to showing where the error is. keep that in mind
-            let table_name = &table_names_from_select[0];
             let col_name = &ident.value;
-            let column_infos = &all_tables[table_name];
+            let mut found_type: Option<Type> = None;
 
-            for column_info in column_infos {
-                if column_info.name == *col_name {
-                    return Ok(column_info.data_type.clone());
+            for table_name in table_names_from_select {
+                if let Some(column_infos) = all_tables.get(table_name) {
+                    for column_info in column_infos {
+                        if column_info.name == *col_name {
+                            // Check if we already found a match previously
+                            if found_type.is_some() {
+                                return Err(format!(
+                                    "Ambiguous column name '{}': It exists in multiple tables {:?}",
+                                    col_name, table_names_from_select
+                                ));
+                            }
+                            found_type = Some(column_info.data_type.clone());
+                        }
+                    }
                 }
             }
-            Err(format!(
-                "Column '{}' not found in table '{}'",
-                col_name, table_name
-            ))
+
+            // Return the found type, or error if None found
+            found_type.ok_or_else(|| {
+                format!(
+                    "Column '{}' not found in tables {:?}",
+                    col_name, table_names_from_select
+                )
+            })
         }
 
         Expr::CompoundIdentifier(idents) => {
@@ -73,7 +84,6 @@ pub fn evaluate_expr_type(
         // Expr::CompoundFieldAccess {..}
         // Expr::JsonAccess {..}
         // Expr::TypedString(_) -- TODO
-        // Expr::Subquery() TODO
         // Expr::GroupingSets() TODO
         // Expr::Cube() TODO
         // Expr::Rollup() TODO
@@ -86,6 +96,25 @@ pub fn evaluate_expr_type(
         // Expr::Prior() TODO
         // Expr::MemberOf() json specifc TODO
         // Compound
+        Expr::Subquery(query) => {
+            // Check the first item in the subquery's projection
+            if let sqlparser::ast::SetExpr::Select(select) = &*query.body
+                && let Some(item) = select.projection.first()
+            {
+                match item {
+                    sqlparser::ast::SelectItem::UnnamedExpr(expr)
+                    | sqlparser::ast::SelectItem::ExprWithAlias { expr, .. } => {
+                        return evaluate_expr_type(expr, table_names_from_select, all_tables);
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Type {
+                base_type: BaseType::Unknowns,
+                nullable: true,
+                contains_placeholder: false,
+            })
+        }
 
         // Raw Values e.g. SELECT 1 or SELECT "hello"
         Expr::Value(val) => {
@@ -229,7 +258,23 @@ pub fn evaluate_expr_type(
             })
         }
 
-        //  Expr::InSubquery { .. }  TODO, deals with subquery
+        Expr::InSubquery { expr, subquery, .. } => {
+            let _lhs = evaluate_expr_type(expr, table_names_from_select, all_tables)?;
+
+
+            //TODO subquery
+            // could recurse into the subquery here if you wanted, but for type evaluation
+            // we just need to know that "IN" returns a Boolean.
+
+            let lhs_contains_placeholder = _lhs.contains_placeholder; // simplistic propagation
+            let lhs_nullable = _lhs.nullable;
+
+            Ok(Type {
+                base_type: BaseType::Bool,
+                nullable: lhs_nullable, 
+                contains_placeholder: lhs_contains_placeholder,
+            })
+        }
         Expr::BinaryOp { left, op, right } => {
             let left_type = evaluate_expr_type(left, table_names_from_select, all_tables)?;
             let right_type = evaluate_expr_type(right, table_names_from_select, all_tables)?;
@@ -514,9 +559,14 @@ pub fn evaluate_expr_type(
                     contains_placeholder: false,
                 }),
 
+                "ABS" => Ok(Type {
+                    base_type: input_type.base_type,
+                    nullable: any_arg_nullable,
+                    contains_placeholder: false,
+                }),
                 // Standard NULL propagation
                 "LENGTH" | "OCTET_LENGTH" | "INSTR" | "UNICODE" | "SIGN" | "GLOB" | "LIKE"
-                | "ABS" | "ROUND" => Ok(Type {
+                | "ROUND" => Ok(Type {
                     base_type: if name == "ROUND" {
                         BaseType::Real
                     } else {
