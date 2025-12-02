@@ -382,11 +382,23 @@ fn traverse_expr(
             )?;
             Ok(())
         }
-        Expr::UnaryOp { expr, .. } => {
-            traverse_expr(expr, table_names, all_tables, results, parent_hint)?;
+        Expr::UnaryOp { op, expr } => {
+            let child_hint = match op {
+                // "NOT ?" -> ? must be a Boolean
+                sqlparser::ast::UnaryOperator::Not => Some(Type {
+                    base_type: BaseType::Bool,
+                    nullable: true,
+                    contains_placeholder: false,
+                }),
+
+                // "+ ?" or "- ?" -> We cannot determine if it is Integer or Real
+                // without outside context, so we just pass the parent_hint through.
+                _ => parent_hint,
+            };
+
+            traverse_expr(expr, table_names, all_tables, results, child_hint)?;
             Ok(())
         }
-
         Expr::BinaryOp { left, right, op } => {
             // evaluates types of children purely to get context for the OTHER child
             let left_type = evaluate_expr_type(left, table_names, all_tables)?;
