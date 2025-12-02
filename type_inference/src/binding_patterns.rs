@@ -39,42 +39,89 @@ pub fn get_type_of_binding_parameters(
                     &mut results,
                     bool_hint.clone(),
                 )?;
+
+                traverse_returning(
+                    &delete_node.returning,
+                    &table_names,
+                    all_tables,
+                    &mut results,
+                )?;
             }
         }
 
         Statement::Update {
             assignments,
             selection,
+            returning,
+
             table,
             ..
         } => {
             let table_name = table.relation.to_string();
 
             for assignment in assignments {
-                let col_name = match &assignment.target {
+                match &assignment.target {
+                    // SET col = val
                     sqlparser::ast::AssignmentTarget::ColumnName(obj_name) => {
-                        obj_name.0.last().map(|p| p.to_string()).unwrap_or_default()
+                        let col_name = obj_name.0.last().map(|p| p.to_string()).unwrap_or_default();
+
+                        let mut hint = None;
+                        if let Some(cols) = all_tables.get(&table_name)
+                            && let Some(col_info) = cols.iter().find(|c| c.name == col_name)
+                        {
+                            hint = Some(col_info.data_type.clone());
+                        }
+                        traverse_expr(
+                            &assignment.value,
+                            &table_names,
+                            all_tables,
+                            &mut results,
+                            hint,
+                        )?;
                     }
-                    _ => String::new(), // Skip tuple assignments for now
-                };
 
-                let mut hint = None;
-                if !col_name.is_empty()
-                    && let Some(cols) = all_tables.get(&table_name)
-                    && let Some(col_info) = cols.iter().find(|c| c.name == col_name)
-                {
-                    hint = Some(col_info.data_type.clone());
+                    // SET (a, b) = (1, 2)
+                    sqlparser::ast::AssignmentTarget::Tuple(col_names) => {
+                        if let sqlparser::ast::Expr::Tuple(values) = &assignment.value {
+                            for (i, name_obj) in col_names.iter().enumerate() {
+                                if let Some(val_expr) = values.get(i) {
+                                    let col_name = name_obj
+                                        .0
+                                        .last()
+                                        .map(|p| p.to_string())
+                                        .unwrap_or_default();
+
+                                    let mut hint = None;
+                                    if let Some(cols) = all_tables.get(&table_name)
+                                        && let Some(col_info) =
+                                            cols.iter().find(|c| c.name == col_name)
+                                    {
+                                        hint = Some(col_info.data_type.clone());
+                                    }
+
+                                    traverse_expr(
+                                        val_expr,
+                                        &table_names,
+                                        all_tables,
+                                        &mut results,
+                                        hint,
+                                    )?;
+                                }
+                            }
+                        } else {
+                            // The value might be a subquery: SET (a,b) = (SELECT 1, 2)
+                            // Traverse blindly with no hint.
+                            traverse_expr(
+                                &assignment.value,
+                                &table_names,
+                                all_tables,
+                                &mut results,
+                                None,
+                            )?;
+                        }
+                    }
                 }
-
-                traverse_expr(
-                    &assignment.value,
-                    &table_names,
-                    all_tables,
-                    &mut results,
-                    hint,
-                )?;
             }
-
             // WHERE Clause
             if let Some(expr) = selection {
                 traverse_expr(
@@ -85,6 +132,7 @@ pub fn get_type_of_binding_parameters(
                     bool_hint.clone(),
                 )?;
             }
+            traverse_returning(returning, &table_names, all_tables, &mut results)?;
         }
 
         Statement::Insert(insert_node) => {
@@ -155,6 +203,12 @@ pub fn get_type_of_binding_parameters(
                         if let Some(selection) = &select.selection {
                             traverse_expr(selection, &table_names, all_tables, &mut results, None)?;
                         }
+                        traverse_returning(
+                            &insert_node.returning,
+                            &table_names,
+                            all_tables,
+                            &mut results,
+                        )?;
                     }
 
                     _ => {
@@ -211,6 +265,12 @@ pub fn get_type_of_binding_parameters(
                     )?;
                 }
             }
+            traverse_returning(
+                &insert_node.returning,
+                &table_names,
+                all_tables,
+                &mut results,
+            )?;
         }
         _ => {}
     }
@@ -987,7 +1047,13 @@ fn traverse_set_expr(
                     };
 
                     if let Some(sqlparser::ast::JoinConstraint::On(expr)) = constraint {
-                        traverse_expr(expr, &local_scope_tables, all_tables, results, bool_hint.clone())?;
+                        traverse_expr(
+                            expr,
+                            &local_scope_tables,
+                            all_tables,
+                            results,
+                            bool_hint.clone(),
+                        )?;
                     }
                 }
             }
@@ -1039,6 +1105,33 @@ fn traverse_set_expr(
             }
         }
         _ => {}
+    }
+    Ok(())
+}
+
+fn traverse_returning(
+    returning: &Option<Vec<sqlparser::ast::SelectItem>>,
+    table_names: &Vec<String>,
+    all_tables: &mut HashMap<String, Vec<ColumnInfo>>,
+    results: &mut Vec<Type>,
+) -> Result<(), String> {
+    if let Some(items) = returning {
+        for item in items {
+            match item {
+                // e.g. RETURNING col + ?
+                sqlparser::ast::SelectItem::UnnamedExpr(expr) => {
+                    // We pass None as the hint because the user is just asking for data back.
+                    // However, 'expr' will handle internal hints (e.g. col + ?)
+                    traverse_expr(expr, table_names, all_tables, results, None)?;
+                }
+                // RETURNING col + ? AS new_val
+                sqlparser::ast::SelectItem::ExprWithAlias { expr, .. } => {
+                    traverse_expr(expr, table_names, all_tables, results, None)?;
+                }
+                // RETURNING *
+                _ => {}
+            }
+        }
     }
     Ok(())
 }
