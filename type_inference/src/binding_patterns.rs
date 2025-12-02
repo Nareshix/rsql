@@ -827,7 +827,6 @@ fn traverse_expr(
 }
 
 // Add these functions at the bottom of the file
-
 fn traverse_query(
     query: &sqlparser::ast::Query,
     table_names: &Vec<String>,
@@ -837,23 +836,17 @@ fn traverse_query(
     // 1. Handle CTEs (WITH clause)
     if let Some(with) = &query.with {
         for cte in &with.cte_tables {
-            // Traverse inside the CTE first
-            // FIX: used 'table_names' instead of 'outer_scope_names'
-            traverse_query(&cte.query, table_names, all_tables, results)?;
-
-            // Infer Schema of the CTE
-            let inferred_columns = infer_cte_columns(&cte.query, all_tables);
+            let inferred_columns = infer_cte_columns(cte, all_tables);
             let cte_name = cte.alias.name.value.clone();
-
-            // Register CTE as if it were a real table
             all_tables.insert(cte_name, inferred_columns);
+            traverse_query(&cte.query, table_names, all_tables, results)?;
         }
     }
 
-    // 2. Handle Body (Select, Union, Values, etc.)
+    // 2. Handle Body
     traverse_set_expr(&query.body, table_names, all_tables, results)?;
 
-    // 3. Handle LIMIT / OFFSET parameters
+    // 3. Handle LIMIT / OFFSET
     if let Some(limit_clause) = &query.limit_clause {
         let int_hint = Some(Type {
             base_type: BaseType::Integer,
@@ -885,82 +878,64 @@ fn traverse_query(
 
     Ok(())
 }
-// binding_patterns.rs
-
 fn infer_cte_columns(
-    query: &sqlparser::ast::Query,
+    cte: &sqlparser::ast::Cte,
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
 ) -> Vec<ColumnInfo> {
-    if let sqlparser::ast::SetExpr::Select(select) = &*query.body {
-        // 1. Build Scope
+    let anchor_body = match &*cte.query.body {
+        sqlparser::ast::SetExpr::SetOperation { left, .. } => left.as_ref(),
+        _ => &cte.query.body,
+    };
+
+    if let sqlparser::ast::SetExpr::Select(select) = anchor_body {
         let mut cte_scope = Vec::new();
         for table_with_joins in &select.from {
             if let sqlparser::ast::TableFactor::Table { name, .. } = &table_with_joins.relation {
-                cte_scope.push(name.to_string());
-            }
-            for join in &table_with_joins.joins {
-                if let sqlparser::ast::TableFactor::Table { name, .. } = &join.relation {
-                    cte_scope.push(name.to_string());
-                }
+                let n = if let Some(sqlparser::ast::ObjectNamePart::Identifier(i)) = name.0.last() {
+                    i.value.clone()
+                } else {
+                    name.to_string()
+                };
+                cte_scope.push(n);
             }
         }
 
         let mut cols = Vec::new();
         for (i, item) in select.projection.iter().enumerate() {
-            match item {
-                // FIX: Handle SELECT *
-                sqlparser::ast::SelectItem::Wildcard(_opt) => {
-                    for table_name in &cte_scope {
-                        if let Some(table_cols) = all_tables.get(table_name) {
-                            cols.extend(table_cols.clone());
-                        }
-                    }
+            let col_name = if let Some(col_def) = cte.alias.columns.get(i) {
+                col_def.name.value.clone()
+            } else {
+                match item {
+                    sqlparser::ast::SelectItem::ExprWithAlias { alias, .. } => alias.value.clone(),
+                    sqlparser::ast::SelectItem::UnnamedExpr(sqlparser::ast::Expr::Identifier(
+                        ident,
+                    )) => ident.value.clone(),
+                    _ => format!("col_{}", i),
                 }
-                // FIX: Handle SELECT table.*
-                sqlparser::ast::SelectItem::QualifiedWildcard(obj_name, _) => {
-                    let table_name = obj_name.to_string();
-                    if let Some(table_cols) = all_tables.get(&table_name) {
-                        cols.extend(table_cols.clone());
-                    }
-                }
-                // Normal columns
-                sqlparser::ast::SelectItem::ExprWithAlias { alias, expr } => {
-                    let deduced_type =
-                        evaluate_expr_type(expr, &cte_scope, all_tables).unwrap_or(Type {
-                            base_type: BaseType::Unknowns,
-                            nullable: true,
-                            contains_placeholder: false,
-                        });
-                    cols.push(ColumnInfo {
-                        name: alias.value.clone(),
-                        data_type: deduced_type,
-                        check_constraint: None,
-                    });
-                }
-                sqlparser::ast::SelectItem::UnnamedExpr(expr) => {
-                    let col_name = match expr {
-                        sqlparser::ast::Expr::Identifier(ident) => ident.value.clone(),
-                        _ => format!("col_{}", i),
-                    };
-                    let deduced_type =
-                        evaluate_expr_type(expr, &cte_scope, all_tables).unwrap_or(Type {
-                            base_type: BaseType::Unknowns,
-                            nullable: true,
-                            contains_placeholder: false,
-                        });
-                    cols.push(ColumnInfo {
-                        name: col_name,
-                        data_type: deduced_type,
-                        check_constraint: None,
-                    });
-                }
-            }
+            };
+
+            let expr = match item {
+                sqlparser::ast::SelectItem::UnnamedExpr(e) => e,
+                sqlparser::ast::SelectItem::ExprWithAlias { expr, .. } => expr,
+                _ => continue,
+            };
+
+            let deduced_type = evaluate_expr_type(expr, &cte_scope, all_tables).unwrap_or(Type {
+                base_type: BaseType::Unknowns,
+                nullable: true,
+                contains_placeholder: false,
+            });
+
+            cols.push(ColumnInfo {
+                name: col_name,
+                data_type: deduced_type,
+                check_constraint: None,
+            });
         }
         return cols;
     }
     vec![]
 }
-
 #[allow(unused)]
 fn traverse_set_expr(
     set_expr: &sqlparser::ast::SetExpr,
