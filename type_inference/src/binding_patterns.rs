@@ -9,68 +9,17 @@ use std::collections::HashMap;
 
 pub fn get_type_of_binding_parameters(
     sql: &str,
-    all_tables: &HashMap<String, Vec<ColumnInfo>>,
+    all_tables: &mut HashMap<String, Vec<ColumnInfo>>,
 ) -> Result<Vec<Type>, String> {
     let statement = &Parser::parse_sql(&SQLiteDialect {}, sql).map_err(|e| e.to_string())?[0];
 
+    let mut working_tables = all_tables.clone();
     let table_names = get_table_names(sql);
     let mut results = Vec::new();
 
     match statement {
         Statement::Query(q) => {
-            if let sqlparser::ast::SetExpr::Select(select) = &*q.body {
-                for item in &select.projection {
-                    match item {
-                        sqlparser::ast::SelectItem::UnnamedExpr(expr)
-                        | sqlparser::ast::SelectItem::ExprWithAlias { expr, .. } => {
-                            // We pass None as hint because usually top-level SELECTs don't imply a type,
-                            // UNLESS it is a Cast (handled inside traverse_expr)
-                            traverse_expr(expr, &table_names, all_tables, &mut results, None)?;
-                        }
-                        // reaching here means, SELECT *. There is no expressions to check
-                        _ => {}
-                    }
-                }
-                // WHERE
-                if let Some(selection) = &select.selection {
-                    traverse_expr(selection, &table_names, all_tables, &mut results, None)?;
-                }
-                // HAVING
-                if let Some(having) = &select.having {
-                    traverse_expr(having, &table_names, all_tables, &mut results, None)?;
-                }
-            }
-
-            // LIMIT / OFFSET
-            if let Some(limit_clause) = &q.limit_clause {
-                let int_hint = Some(Type {
-                    base_type: BaseType::Integer,
-                    nullable: false,
-                    contains_placeholder: false,
-                });
-
-                if let sqlparser::ast::LimitClause::LimitOffset { limit, offset, .. } = limit_clause
-                {
-                    if let Some(limit_expr) = limit {
-                        traverse_expr(
-                            limit_expr,
-                            &table_names,
-                            all_tables,
-                            &mut results,
-                            int_hint.clone(),
-                        )?;
-                    }
-                    if let Some(offset_struct) = offset {
-                        traverse_expr(
-                            &offset_struct.value,
-                            &table_names,
-                            all_tables,
-                            &mut results,
-                            int_hint,
-                        )?;
-                    }
-                }
-            }
+            traverse_query(q, &table_names, &mut working_tables, &mut results)?;
         }
 
         Statement::Delete(delete_node) => {
@@ -170,11 +119,26 @@ pub fn get_type_of_binding_parameters(
 fn traverse_expr(
     expr: &Expr,
     table_names: &Vec<String>,
-    all_tables: &HashMap<String, Vec<ColumnInfo>>,
+    all_tables: &mut HashMap<String, Vec<ColumnInfo>>,
     results: &mut Vec<Type>,
     parent_hint: Option<Type>, // The type inferred from the parent context
 ) -> Result<(), String> {
     match expr {
+        Expr::Subquery(query) => {
+            traverse_query(query, table_names, all_tables, results)?;
+            Ok(())
+        }
+
+        Expr::Exists { subquery, .. } => {
+            traverse_query(subquery, table_names, all_tables, results)?;
+            Ok(())
+        }
+
+        Expr::InSubquery { expr, subquery, .. } => {
+            traverse_expr(expr, table_names, all_tables, results, None)?;
+            traverse_query(subquery, table_names, all_tables, results)?;
+            Ok(())
+        }
         Expr::Value(val) => {
             if let sqlparser::ast::Value::Placeholder(_) = val.value {
                 let t = parent_hint
@@ -505,4 +469,217 @@ fn traverse_expr(
 
         _ => Ok(()),
     }
+}
+
+// Add these functions at the bottom of the file
+
+fn traverse_query(
+    query: &sqlparser::ast::Query,
+    table_names: &Vec<String>,
+    all_tables: &mut HashMap<String, Vec<ColumnInfo>>,
+    results: &mut Vec<Type>,
+) -> Result<(), String> {
+    // 1. Handle CTEs (WITH clause)
+    if let Some(with) = &query.with {
+        for cte in &with.cte_tables {
+            // Traverse inside the CTE first
+            // FIX: used 'table_names' instead of 'outer_scope_names'
+            traverse_query(&cte.query, table_names, all_tables, results)?;
+
+            // Infer Schema of the CTE
+            let inferred_columns = infer_cte_columns(&cte.query, all_tables);
+            let cte_name = cte.alias.name.value.clone();
+
+            // Register CTE as if it were a real table
+            all_tables.insert(cte_name, inferred_columns);
+        }
+    }
+
+    // 2. Handle Body (Select, Union, Values, etc.)
+    traverse_set_expr(&query.body, table_names, all_tables, results)?;
+
+    // 3. Handle LIMIT / OFFSET parameters
+    if let Some(limit_clause) = &query.limit_clause {
+        let int_hint = Some(Type {
+            base_type: BaseType::Integer,
+            nullable: false,
+            contains_placeholder: false,
+        });
+
+        if let sqlparser::ast::LimitClause::LimitOffset { limit, offset, .. } = limit_clause {
+            if let Some(limit_expr) = limit {
+                traverse_expr(
+                    limit_expr,
+                    table_names,
+                    all_tables,
+                    results,
+                    int_hint.clone(),
+                )?;
+            }
+            if let Some(offset_struct) = offset {
+                traverse_expr(
+                    &offset_struct.value,
+                    table_names,
+                    all_tables,
+                    results,
+                    int_hint,
+                )?;
+            }
+        }
+    }
+
+    Ok(())
+}
+// binding_pattern.rs
+
+fn traverse_set_expr(
+    set_expr: &sqlparser::ast::SetExpr,
+    outer_scope: &Vec<String>,
+    all_tables: &mut HashMap<String, Vec<ColumnInfo>>,
+    results: &mut Vec<Type>,
+) -> Result<(), String> {
+    match set_expr {
+        sqlparser::ast::SetExpr::Select(select) => {
+            let mut local_scope_tables = Vec::new();
+
+            // Helper closure to register aliases
+            // We need to use a closure or loop to avoid borrowing issues
+            let mut register_table = |relation: &sqlparser::ast::TableFactor| {
+                if let sqlparser::ast::TableFactor::Table { name, alias, .. } = relation {
+                    let real_name = name.to_string();
+                    let effective_name = if let Some(a) = alias {
+                        let alias_name = a.name.value.clone();
+                        // If we have an alias, look up the real table and register the alias
+                        if let Some(cols) = all_tables.get(&real_name).cloned() {
+                            all_tables.insert(alias_name.clone(), cols);
+                        }
+                        alias_name
+                    } else {
+                        real_name
+                    };
+                    local_scope_tables.push(effective_name);
+                }
+            };
+
+            for table_with_joins in &select.from {
+                // 1. Register main table
+                register_table(&table_with_joins.relation);
+
+                // 2. Register joined tables
+                for join in &table_with_joins.joins {
+                    register_table(&join.relation);
+                }
+            }
+
+            // Projections
+            for item in &select.projection {
+                if let sqlparser::ast::SelectItem::UnnamedExpr(expr)
+                | sqlparser::ast::SelectItem::ExprWithAlias { expr, .. } = item
+                {
+                    traverse_expr(expr, &local_scope_tables, all_tables, results, None)?;
+                }
+            }
+
+            // Joins / ON clauses
+            for table_with_joins in &select.from {
+                for join in &table_with_joins.joins {
+                    let constraint = match &join.join_operator {
+                        sqlparser::ast::JoinOperator::Inner(c)
+                        | sqlparser::ast::JoinOperator::Left(c)
+                        | sqlparser::ast::JoinOperator::LeftOuter(c)
+                        | sqlparser::ast::JoinOperator::Right(c)
+                        | sqlparser::ast::JoinOperator::RightOuter(c)
+                        | sqlparser::ast::JoinOperator::FullOuter(c)
+                        | sqlparser::ast::JoinOperator::Join(c)
+                        | sqlparser::ast::JoinOperator::CrossJoin(c) => Some(c),
+                        _ => None,
+                    };
+
+                    if let Some(sqlparser::ast::JoinConstraint::On(expr)) = constraint {
+                        traverse_expr(expr, &local_scope_tables, all_tables, results, None)?;
+                    }
+                }
+            }
+            // WHERE
+            if let Some(selection) = &select.selection {
+                traverse_expr(selection, &local_scope_tables, all_tables, results, None)?;
+            }
+            // HAVING
+            if let Some(having) = &select.having {
+                traverse_expr(having, &local_scope_tables, all_tables, results, None)?;
+            }
+        }
+
+        sqlparser::ast::SetExpr::SetOperation { left, right, .. } => {
+            traverse_set_expr(left, outer_scope, all_tables, results)?;
+            traverse_set_expr(right, outer_scope, all_tables, results)?;
+        }
+
+        sqlparser::ast::SetExpr::Query(q) => {
+            traverse_query(q, outer_scope, all_tables, results)?;
+        }
+
+        sqlparser::ast::SetExpr::Values(values) => {
+            for row in &values.rows {
+                for expr in row {
+                    traverse_expr(expr, outer_scope, all_tables, results, None)?;
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+// binding_pattern.rs
+
+fn infer_cte_columns(
+    query: &sqlparser::ast::Query,
+    all_tables: &HashMap<String, Vec<ColumnInfo>>
+) -> Vec<ColumnInfo> {
+    if let sqlparser::ast::SetExpr::Select(select) = &*query.body {
+
+        // 1. Build the Scope (Tables used inside the CTE)
+        let mut cte_scope = Vec::new();
+        for table_with_joins in &select.from {
+            if let sqlparser::ast::TableFactor::Table { name, .. } = &table_with_joins.relation {
+                cte_scope.push(name.to_string());
+            }
+            for join in &table_with_joins.joins {
+                if let sqlparser::ast::TableFactor::Table { name, .. } = &join.relation {
+                    cte_scope.push(name.to_string());
+                }
+            }
+        }
+
+        let mut cols = Vec::new();
+        for (i, item) in select.projection.iter().enumerate() {
+            // 2. Infer Name
+            let col_name = match item {
+                sqlparser::ast::SelectItem::ExprWithAlias { alias, .. } => alias.value.clone(),
+                sqlparser::ast::SelectItem::UnnamedExpr(sqlparser::ast::Expr::Identifier(ident)) => ident.value.clone(),
+                _ => format!("col_{}", i),
+            };
+
+            // 3. Infer Type
+            let deduced_type = match item {
+                sqlparser::ast::SelectItem::UnnamedExpr(e) |
+                sqlparser::ast::SelectItem::ExprWithAlias { expr: e, .. } => {
+                    // FIX: Pass 'cte_scope' instead of empty vector
+                    evaluate_expr_type(e, &cte_scope, all_tables).unwrap_or(Type {
+                        base_type: BaseType::Unknowns, nullable: true, contains_placeholder: false
+                    })
+                },
+                _ => Type { base_type: BaseType::Unknowns, nullable: true, contains_placeholder: false }
+            };
+
+            cols.push(ColumnInfo {
+                name: col_name,
+                data_type: deduced_type,
+                check_constraint: None,
+            });
+        }
+        return cols;
+    }
+    vec![]
 }
