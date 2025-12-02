@@ -2,8 +2,7 @@ use std::{collections::HashMap, ops::ControlFlow};
 
 use sqlparser::{
     ast::{
-        AssignmentTarget, Expr, LimitClause, ObjectName, ObjectNamePart, Statement, Value,
-        ValueWithSpan, Visit, Visitor, visit_expressions,
+        Expr, Visit, Visitor,
     },
     dialect::SQLiteDialect,
     parser::Parser,
@@ -53,64 +52,75 @@ impl Visitor for V<'_> {
 
                 // it guaranteed for either LHS or RHS to have 1 ?.
                 // This is because if there is 2, it will be return as an error which is taken care of above
-                if lhs_expr_type.contains_placeholder || rhs_expr_type.contains_placeholder {
+                if lhs_expr_type.base_type == BaseType::PlaceHolder {
+                    self.types.push(rhs_expr_type);
+                } else if rhs_expr_type.base_type == BaseType::PlaceHolder {
                     self.types.push(lhs_expr_type);
                 }
             }
-
             Expr::InList { expr, list, .. } => {
-                let lhs_expr_type =
-                    evaluate_expr_type(expr, self.table_names_from_select, self.all_tables)
+                let lhs = evaluate_expr_type(expr, self.table_names_from_select, self.all_tables)
+                    .into_cf()?;
+
+                // Case: ? IN (1, 2)
+                if lhs.base_type == BaseType::PlaceHolder
+                    && let Some(first) = list.first() {
+                        let first_type = evaluate_expr_type(
+                            first,
+                            self.table_names_from_select,
+                            self.all_tables,
+                        )
                         .into_cf()?;
+                        self.types.push(first_type);
+                    }
 
-                if lhs_expr_type.contains_placeholder {
-                    self.types.push(lhs_expr_type.clone());
-                }
-
-                for expr in list {
-                    let rhs_expr_type =
-                        evaluate_expr_type(expr, self.table_names_from_select, self.all_tables)
+                // Case: id IN (?, ?)
+                for item in list {
+                    let item_type =
+                        evaluate_expr_type(item, self.table_names_from_select, self.all_tables)
                             .into_cf()?;
-                    if rhs_expr_type.contains_placeholder {
-                        self.types.push(lhs_expr_type);
-                        break;
+                    if item_type.base_type == BaseType::PlaceHolder {
+                        self.types.push(lhs.clone());
                     }
                 }
             }
-
             Expr::Between {
                 expr, low, high, ..
             } => {
-                let middle_expr_type =
+                let middle =
                     evaluate_expr_type(expr, self.table_names_from_select, self.all_tables)
                         .into_cf()?;
-                let lhs_expr_type =
-                    evaluate_expr_type(low, self.table_names_from_select, self.all_tables)
-                        .into_cf()?;
-                let rhs_expr_type =
+                let low_t = evaluate_expr_type(low, self.table_names_from_select, self.all_tables)
+                    .into_cf()?;
+                let high_t =
                     evaluate_expr_type(high, self.table_names_from_select, self.all_tables)
                         .into_cf()?;
 
-                if lhs_expr_type.contains_placeholder || rhs_expr_type.contains_placeholder {
-                    self.types.push(middle_expr_type);
+                // Case: ? BETWEEN 10 AND 20
+                if middle.base_type == BaseType::PlaceHolder {
+                    self.types.push(low_t.clone()); // Infer from low
+                }
+
+                // Case: age BETWEEN ? AND ?
+                if low_t.base_type == BaseType::PlaceHolder {
+                    self.types.push(middle.clone());
+                }
+                if high_t.base_type == BaseType::PlaceHolder {
+                    self.types.push(middle.clone());
                 }
             }
-
-            Expr::Like {
-                expr,
-                pattern,
-                escape_char, //TODO, placeholder in escape_char
-                ..
-            } => {
-                let lhs_expr_type =
-                    evaluate_expr_type(expr, self.table_names_from_select, self.all_tables)
-                        .into_cf()?;
-                let rhs_expr_type =
+            Expr::Like { expr, pattern, .. } => {
+                let lhs = evaluate_expr_type(expr, self.table_names_from_select, self.all_tables)
+                    .into_cf()?;
+                let rhs =
                     evaluate_expr_type(pattern, self.table_names_from_select, self.all_tables)
                         .into_cf()?;
 
-                if lhs_expr_type.contains_placeholder || rhs_expr_type.contains_placeholder {
-                    self.types.push(lhs_expr_type);
+                if lhs.base_type == BaseType::PlaceHolder {
+                    self.types.push(rhs);
+                }
+                else if rhs.base_type == BaseType::PlaceHolder {
+                    self.types.push(lhs);
                 }
             }
             _ => {}
