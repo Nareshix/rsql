@@ -1,186 +1,282 @@
-use std::{collections::HashMap, ops::ControlFlow};
+use crate::expr::{BaseType, Type, evaluate_expr_type};
+use crate::table::{ColumnInfo, get_table_names};
+use sqlparser::ast::{BinaryOperator, DataType, Expr, FunctionArg, FunctionArgExpr, FunctionArguments};
+use sqlparser::dialect::SQLiteDialect;
+use sqlparser::parser::Parser;
+use std::collections::HashMap;
 
-use sqlparser::{
-    ast::{
-        Expr, Visit, Visitor,
-    },
-    dialect::SQLiteDialect,
-    parser::Parser,
-};
-
-use crate::expr::{BaseType, evaluate_expr_type};
-use crate::{
-    expr::Type,
-    table::{ColumnInfo, get_table_names},
-};
-
-// #[derive(Default)]
-#[derive(Debug)]
-struct V<'a> {
-    types: Vec<Type>,
-    table_names_from_select: &'a Vec<String>,
-    all_tables: &'a HashMap<String, Vec<ColumnInfo>>,
-}
-
-trait IntoControlFlow<T> {
-    fn into_cf(self) -> ControlFlow<String, T>;
-}
-
-impl<T> IntoControlFlow<T> for Result<T, String> {
-    fn into_cf(self) -> ControlFlow<String, T> {
-        match self {
-            Ok(v) => ControlFlow::Continue(v),
-            Err(e) => ControlFlow::Break(e),
-        }
-    }
-}
-impl Visitor for V<'_> {
-    type Break = String;
-
-    // it is guranteed for ? placeholder to always be used in an expression
-    // and never standalone. The only time it is used standalone is in the
-    // rare usage of SELECT ?,?,?... which will be handled by select_pattern.rs
-    fn post_visit_expr(&mut self, expr: &Expr) -> ControlFlow<Self::Break> {
-        match expr {
-            Expr::BinaryOp { left, right, .. } => {
-                let lhs_expr_type =
-                    evaluate_expr_type(left, self.table_names_from_select, self.all_tables)
-                        .into_cf()?;
-                let rhs_expr_type =
-                    evaluate_expr_type(right, self.table_names_from_select, self.all_tables)
-                        .into_cf()?;
-
-                // it guaranteed for either LHS or RHS to have 1 ?.
-                // This is because if there is 2, it will be return as an error which is taken care of above
-                if lhs_expr_type.base_type == BaseType::PlaceHolder {
-                    self.types.push(rhs_expr_type);
-                } else if rhs_expr_type.base_type == BaseType::PlaceHolder {
-                    self.types.push(lhs_expr_type);
-                }
-            }
-            Expr::InList { expr, list, .. } => {
-                let lhs = evaluate_expr_type(expr, self.table_names_from_select, self.all_tables)
-                    .into_cf()?;
-
-                // Case: ? IN (1, 2)
-                if lhs.base_type == BaseType::PlaceHolder
-                    && let Some(first) = list.first() {
-                        let first_type = evaluate_expr_type(
-                            first,
-                            self.table_names_from_select,
-                            self.all_tables,
-                        )
-                        .into_cf()?;
-                        self.types.push(first_type);
-                    }
-
-                // Case: id IN (?, ?)
-                for item in list {
-                    let item_type =
-                        evaluate_expr_type(item, self.table_names_from_select, self.all_tables)
-                            .into_cf()?;
-                    if item_type.base_type == BaseType::PlaceHolder {
-                        self.types.push(lhs.clone());
-                    }
-                }
-            }
-            Expr::Between {
-                expr, low, high, ..
-            } => {
-                let middle =
-                    evaluate_expr_type(expr, self.table_names_from_select, self.all_tables)
-                        .into_cf()?;
-                let low_t = evaluate_expr_type(low, self.table_names_from_select, self.all_tables)
-                    .into_cf()?;
-                let high_t =
-                    evaluate_expr_type(high, self.table_names_from_select, self.all_tables)
-                        .into_cf()?;
-
-                // Case: ? BETWEEN 10 AND 20
-                if middle.base_type == BaseType::PlaceHolder {
-                    self.types.push(low_t.clone()); // Infer from low
-                }
-
-                // Case: age BETWEEN ? AND ?
-                if low_t.base_type == BaseType::PlaceHolder {
-                    self.types.push(middle.clone());
-                }
-                if high_t.base_type == BaseType::PlaceHolder {
-                    self.types.push(middle.clone());
-                }
-            }
-            Expr::Like { expr, pattern, .. } => {
-                let lhs = evaluate_expr_type(expr, self.table_names_from_select, self.all_tables)
-                    .into_cf()?;
-                let rhs =
-                    evaluate_expr_type(pattern, self.table_names_from_select, self.all_tables)
-                        .into_cf()?;
-
-                if lhs.base_type == BaseType::PlaceHolder {
-                    self.types.push(rhs);
-                }
-                else if rhs.base_type == BaseType::PlaceHolder {
-                    self.types.push(lhs);
-                }
-            }
-            _ => {}
-        }
-        ControlFlow::Continue(())
-    }
-}
-
-#[allow(unused)]
 pub fn get_type_of_binding_parameters(
     sql: &str,
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
 ) -> Result<Vec<Type>, String> {
-    let statement = &Parser::parse_sql(&SQLiteDialect {}, sql).unwrap()[0];
-    let table_names_from_select = &get_table_names(sql);
-    let mut types = Vec::new();
+    let statement = &Parser::parse_sql(&SQLiteDialect {}, sql).map_err(|e| e.to_string())?[0];
 
-    let mut visitor = V {
-        all_tables,
-        table_names_from_select,
-        types,
-    };
+    let table_names = get_table_names(sql);
+    let mut results = Vec::new();
 
-    match statement.visit(&mut visitor) {
-        ControlFlow::Break(err_msg) => Err(err_msg),
-        ControlFlow::Continue(_) => Ok(visitor.types),
+    //  extracting WHERE clause
+    if let sqlparser::ast::Statement::Query(q) = statement
+        && let Some(selection) = &q.body.as_select().unwrap().selection
+    {
+        traverse_expr(selection, &table_names, all_tables, &mut results, None)?;
     }
 
-    // LIMIT and OFFSET
-    // let check_placeholder = |expr: &Expr| {
-    //     if matches!(
-    //         expr,
-    //         Expr::Value(ValueWithSpan {
-    //             value: Value::Placeholder(_),
-    //             ..
-    //         })
-    //     ) {
-    //         Ok(Type {
-    //             base_type: BaseType::Integer,
-    //             nullable: false, //dont care wht this is
-    //             contains_placeholder: true,
-    //         })
-    //     } else {
-    //         Err("internal error? something went wrong. cant analyse LIMIT or OFFSET".to_string())
-    //     }
-    // };
+    Ok(results)
+}
 
-    // if let Statement::Query(query) = statement
-    //     && let Some(LimitClause::LimitOffset { limit, offset, .. }) = &query.limit_clause
-    // {
-    //     // LIMIT
-    //     if let Some(limit_expr) = limit {
-    //         let x = check_placeholder(limit_expr);
-    //         types.push(x);
-    //     }
+// Custom recursive function
+fn traverse_expr(
+    expr: &Expr,
+    table_names: &Vec<String>,
+    all_tables: &HashMap<String, Vec<ColumnInfo>>,
+    results: &mut Vec<Type>,
+    parent_hint: Option<Type>, // The type inferred from the parent context
+) -> Result<(), String> {
+    match expr {
+        Expr::Value(val) => {
+            if let sqlparser::ast::Value::Placeholder(_) = val.value {
+                let t = parent_hint
+                    .ok_or("Could not infer type for placeholder (ambiguous context)")?;
+                results.push(t);
+            }
+            Ok(())
+        }
 
-    //     // OFFSET
-    //     if let Some(offset_struct) = offset {
-    //         let x = check_placeholder(&offset_struct.value);
-    //         types.push(x);
-    //     }
-    // }
+        Expr::BinaryOp { left, right, op } => {
+            // evaluates types of children purely to get context for the OTHER child
+            let left_type = evaluate_expr_type(left, table_names, all_tables)?;
+            let right_type = evaluate_expr_type(right, table_names, all_tables)?;
+
+            // If the operator is arithmetic (+, -, *, /), the hint is usually Number (Real/Int).
+            // If the operator is comparison (=, >, <), the hint for Left is Right's type, and vice versa.
+            let (left_hint, right_hint) = match op {
+                BinaryOperator::Eq
+                | BinaryOperator::Gt
+                | BinaryOperator::Lt
+                | BinaryOperator::GtEq
+                | BinaryOperator::LtEq
+                | BinaryOperator::NotEq => {
+                    (Some(right_type), Some(left_type))
+                }
+                BinaryOperator::Plus
+                | BinaryOperator::Minus
+                | BinaryOperator::Multiply
+                | BinaryOperator::Divide => {
+                    (Some(right_type), Some(left_type))
+                }
+                _ => (None, None),
+            };
+
+            // recurses left to right.
+            traverse_expr(left, table_names, all_tables, results, left_hint)?;
+            traverse_expr(right, table_names, all_tables, results, right_hint)?;
+
+            Ok(())
+        }
+
+        Expr::Nested(inner) => traverse_expr(inner, table_names, all_tables, results, parent_hint),
+
+        Expr::InList { expr, list, .. } => {
+            // Traverse LHS
+            traverse_expr(expr, table_names, all_tables, results, None)?; // TODO: Hint?
+
+            let lhs_type = evaluate_expr_type(expr, table_names, all_tables)?;
+
+            for item in list {
+                traverse_expr(
+                    item,
+                    table_names,
+                    all_tables,
+                    results,
+                    Some(lhs_type.clone()),
+                )?;
+            }
+            Ok(())
+        }
+        Expr::Between {
+            expr, low, high, ..
+        } => {
+            let e_type = evaluate_expr_type(expr, table_names, all_tables);
+            let l_type = evaluate_expr_type(low, table_names, all_tables);
+            let h_type = evaluate_expr_type(high, table_names, all_tables);
+
+            // Determine context from the first available non-placeholder type
+            let context = if let Ok(t) = &e_type
+                && t.base_type != BaseType::PlaceHolder
+            {
+                Some(t.clone())
+            } else if let Ok(t) = &l_type
+                && t.base_type != BaseType::PlaceHolder
+            {
+                Some(t.clone())
+            } else if let Ok(t) = &h_type
+                && t.base_type != BaseType::PlaceHolder
+            {
+                Some(t.clone())
+            } else {
+                None // If all 3 are placeholders, we can't infer anything.
+            };
+
+            // Recursion strictly Left-to-Right
+            traverse_expr(expr, table_names, all_tables, results, context.clone())?;
+            traverse_expr(low, table_names, all_tables, results, context.clone())?;
+            traverse_expr(high, table_names, all_tables, results, context)?;
+            Ok(())
+        }
+        Expr::Cast {
+            expr, data_type, ..
+        } => {
+            let target_type = match data_type {
+                DataType::Int(_)
+                | DataType::Integer(_)
+                | DataType::TinyInt(_)
+                | DataType::SmallInt(_)
+                | DataType::MediumInt(_)
+                | DataType::BigInt(_)
+                | DataType::BigIntUnsigned(_)
+                | DataType::Int2(_)
+                | DataType::Int8(_) => Some(Type {
+                    base_type: BaseType::Integer,
+                    nullable: true,
+                    contains_placeholder: false,
+                }),
+
+                DataType::Character(_)
+                | DataType::Varchar(_)
+                | DataType::CharVarying(_)
+                | DataType::CharacterVarying(_)
+                | DataType::Nvarchar(_)
+                | DataType::Text
+                | DataType::Clob(_) => Some(Type {
+                    base_type: BaseType::Text,
+                    nullable: true,
+                    contains_placeholder: false,
+                }),
+
+                DataType::Real
+                | DataType::Double(_)
+                | DataType::DoublePrecision
+                | DataType::Numeric(_)
+                | DataType::Decimal(_)
+                | DataType::Float(_) => Some(Type {
+                    base_type: BaseType::Real,
+                    nullable: true,
+                    contains_placeholder: false,
+                }),
+
+                DataType::Boolean => Some(Type {
+                    base_type: BaseType::Bool,
+                    nullable: true,
+                    contains_placeholder: false,
+                }),
+
+                _ => None,
+            };
+
+            traverse_expr(expr, table_names, all_tables, results, target_type)?;
+            Ok(())
+        }
+
+        Expr::Function(func) => {
+            let name = func.name.to_string().to_uppercase();
+
+            let expects_text = matches!(
+                name.as_str(),
+                "LOWER" | "UPPER" | "LTRIM" | "RTRIM" | "TRIM" | "REPLACE" |
+                "SUBSTR" | "SUBSTRING" | "CONCAT" | "CONCAT_WS" | "LENGTH" |
+                "OCTET_LENGTH" | "INSTR" | "GLOB" | "LIKE" | "DATE" | "TIME" | "DATETIME"
+            );
+
+            // Bucket 2: Functions that expect NUMERIC inputs (Real or Int)
+            let expects_number = matches!(
+                name.as_str(),
+                "ABS" | "ROUND" | "CEIL" | "FLOOR" | "SIN" | "COS" | "TAN" |
+                "ASIN" | "ACOS" | "ATAN" | "SQRT" | "POW" | "POWER" | "LOG" |
+                "LOG10" | "EXP" | "DEGREES" | "RADIANS" | "SIGN" | "MOD"
+            );
+
+            let is_polymorphic = matches!(
+                name.as_str(),
+                "COALESCE" | "IFNULL" | "MIN" | "MAX" | "SUM" | "LEAD" | "LAG" |
+                "NULLIF" | "FIRST_VALUE" | "LAST_VALUE"
+            );
+
+            let arg_hint = if expects_text {
+                Some(Type { base_type: BaseType::Text, nullable: true, contains_placeholder: false })
+            } else if expects_number {
+                Some(Type { base_type: BaseType::Real, nullable: true, contains_placeholder: false })
+            } else if is_polymorphic {
+                // TODO check if this actually works
+                let mut found_sibling = None;
+                if let FunctionArguments::List(args_list) = &func.args {
+                    for arg in &args_list.args {
+                        if let FunctionArg::Unnamed(FunctionArgExpr::Expr(arg_expr)) = arg
+                             && let Ok(t) = evaluate_expr_type(arg_expr, table_names, all_tables)
+                                 && t.base_type != BaseType::PlaceHolder {
+                                     found_sibling = Some(t);
+                                     break;
+                                 }
+                    }
+                }
+                // Use sibling type if found, otherwise fallback to what the parent expected of this function
+                found_sibling.or(parent_hint)
+            } else {
+                // Unknown function or functions like COUNT(*) that don't care
+                None
+            };
+
+            if let FunctionArguments::List(args_list) = &func.args {
+                for arg in &args_list.args {
+                    if let FunctionArg::Unnamed(FunctionArgExpr::Expr(arg_expr)) = arg {
+                        traverse_expr(arg_expr, table_names, all_tables, results, arg_hint.clone())?;
+                    }
+                }
+            }
+            Ok(())
+        }
+
+        Expr::Ceil { expr, .. } | Expr::Floor { expr, .. } => {
+            let hint = Some(Type {
+                base_type: BaseType::Real,
+                nullable: true,
+                contains_placeholder: false
+            });
+            traverse_expr(expr, table_names, all_tables, results, hint)?;
+            Ok(())
+        }
+
+        Expr::Substring { expr, substring_from, substring_for, .. } => {
+            traverse_expr(expr, table_names, all_tables, results, Some(Type {
+                base_type: BaseType::Text, nullable: true, contains_placeholder: false
+            }))?;
+
+            if let Some(from_expr) = substring_from {
+                traverse_expr(from_expr, table_names, all_tables, results, Some(Type {
+                    base_type: BaseType::Integer, nullable: true, contains_placeholder: false
+                }))?;
+            }
+
+            if let Some(for_expr) = substring_for {
+                traverse_expr(for_expr, table_names, all_tables, results, Some(Type {
+                    base_type: BaseType::Integer, nullable: true, contains_placeholder: false
+                }))?;
+            }
+            Ok(())
+        }
+
+        Expr::Trim { expr, trim_what, .. } => {
+            let text_hint = Some(Type {
+                base_type: BaseType::Text, nullable: true, contains_placeholder: false
+            });
+
+            traverse_expr(expr, table_names, all_tables, results, text_hint.clone())?;
+
+            if let Some(pattern_expr) = trim_what {
+                traverse_expr(pattern_expr, table_names, all_tables, results, text_hint)?;
+            }
+            Ok(())
+        }
+
+        _ => Ok(()),
+    }
 }
