@@ -144,6 +144,10 @@ fn traverse_expr(
             if let sqlparser::ast::Value::Placeholder(_) = val.value {
                 let t = parent_hint
                     .ok_or("Could not infer type for placeholder (ambiguous context)")?;
+                if t.base_type == BaseType::PlaceHolder || t.base_type == BaseType::Unknowns {
+                    return Err("Ambiguous context: Unable to infer a concrete type. Try casting one of the operands.".to_string());
+                }
+
                 results.push(t);
             }
             Ok(())
@@ -205,8 +209,6 @@ fn traverse_expr(
             let left_type = evaluate_expr_type(left, table_names, all_tables)?;
             let right_type = evaluate_expr_type(right, table_names, all_tables)?;
 
-            // If the operator is arithmetic (+, -, *, /), the hint is usually Number (Real/Int).
-            // If the operator is comparison (=, >, <), the hint for Left is Right's type, and vice versa.
             let (left_hint, right_hint) = match op {
                 BinaryOperator::Eq
                 | BinaryOperator::Gt
@@ -214,21 +216,50 @@ fn traverse_expr(
                 | BinaryOperator::GtEq
                 | BinaryOperator::LtEq
                 | BinaryOperator::NotEq => (Some(right_type), Some(left_type)),
+
                 BinaryOperator::Plus
                 | BinaryOperator::Minus
                 | BinaryOperator::Multiply
                 | BinaryOperator::Modulo
                 | BinaryOperator::Divide => (Some(right_type), Some(left_type)),
+
+                BinaryOperator::StringConcat => {
+                    let text_type = Type {
+                        base_type: BaseType::Text,
+                        nullable: true,
+                        contains_placeholder: false,
+                    };
+                    (Some(text_type.clone()), Some(text_type))
+                }
+
+                BinaryOperator::And | BinaryOperator::Or => {
+                    let bool_type = Type {
+                        base_type: BaseType::Bool,
+                        nullable: false,
+                        contains_placeholder: false,
+                    };
+                    (Some(bool_type.clone()), Some(bool_type))
+                }
+
+                BinaryOperator::BitwiseOr
+                | BinaryOperator::BitwiseAnd
+                | BinaryOperator::BitwiseXor => {
+                    let int_type = Type {
+                        base_type: BaseType::Integer,
+                        nullable: true,
+                        contains_placeholder: false,
+                    };
+                    (Some(int_type.clone()), Some(int_type))
+                }
+
                 _ => (None, None),
             };
 
-            // recurses left to right.
             traverse_expr(left, table_names, all_tables, results, left_hint)?;
             traverse_expr(right, table_names, all_tables, results, right_hint)?;
 
             Ok(())
         }
-
         Expr::Nested(inner) => traverse_expr(inner, table_names, all_tables, results, parent_hint),
 
         Expr::InList { expr, list, .. } => {
@@ -332,6 +363,79 @@ fn traverse_expr(
             Ok(())
         }
 
+        Expr::Case {
+            operand,
+            conditions,
+            else_result,
+            ..
+        } => {
+            // --- STEP 1: Determine the Return Type Hint ---
+            // We look for the first non-placeholder type in THEN or ELSE clauses.
+            // If found, that becomes the hint for all other result branches.
+            let mut result_hint = parent_hint.clone();
+
+            // A. Check 'ELSE' first (often simplest)
+            if result_hint.is_none()
+                && let Some(else_expr) = else_result
+                && let Ok(t) = evaluate_expr_type(else_expr, table_names, all_tables)
+                && t.base_type != BaseType::PlaceHolder
+                && t.base_type != BaseType::Unknowns
+            {
+                result_hint = Some(t);
+            }
+
+            // B. Check 'THEN' clauses if we still don't know
+            if result_hint.is_none() {
+                for cond in conditions {
+                    if let Ok(t) = evaluate_expr_type(&cond.result, table_names, all_tables)
+                        && t.base_type != BaseType::PlaceHolder
+                        && t.base_type != BaseType::Unknowns
+                    {
+                        result_hint = Some(t);
+                        break;
+                    }
+                }
+            }
+
+            // --- STEP 2: Determine the Operand/Condition Hint ---
+            let operand_hint = if let Some(op_expr) = operand {
+                // Evaluate the operand (e.g., CASE x WHEN 1...) to hint the WHEN clauses
+                traverse_expr(op_expr, table_names, all_tables, results, None)?;
+                evaluate_expr_type(op_expr, table_names, all_tables).ok()
+            } else {
+                None
+            };
+
+            // --- STEP 3: Traverse ---
+            for cond in conditions {
+                // 1. Condition (WHEN ...)
+                // If it's "CASE x WHEN ...", hint matches x.
+                // If it's "CASE WHEN ...", hint is Boolean.
+                let when_hint = operand_hint.clone().or(Some(Type {
+                    base_type: BaseType::Bool,
+                    nullable: false,
+                    contains_placeholder: false,
+                }));
+
+                traverse_expr(&cond.condition, table_names, all_tables, results, when_hint)?;
+
+                // 2. Result (THEN ...) -> Uses the result_hint we found in Step 1
+                traverse_expr(
+                    &cond.result,
+                    table_names,
+                    all_tables,
+                    results,
+                    result_hint.clone(),
+                )?;
+            }
+
+            // 3. Else (ELSE ...) -> Uses the result_hint
+            if let Some(else_expr) = else_result {
+                traverse_expr(else_expr, table_names, all_tables, results, result_hint)?;
+            }
+
+            Ok(())
+        }
         Expr::Function(func) => {
             let name = func.name.to_string().to_uppercase();
 
