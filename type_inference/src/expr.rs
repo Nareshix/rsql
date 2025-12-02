@@ -152,7 +152,7 @@ pub fn evaluate_expr_type(
             nullable: false,
             contains_placeholder: false,
         }), // TODO placeholder
-            // TODO Exists can be null, but usually they are subquerys
+        // TODO Exists can be null, but usually they are subquerys
 
         // SELECT... WHERE id in (?,?,...)
         Expr::InList { expr, list, .. } => {
@@ -247,15 +247,25 @@ pub fn evaluate_expr_type(
                 | BinaryOperator::And
                 | BinaryOperator::Or => {
                     let are_comparable = match (&left_type.base_type, &right_type.base_type) {
-                        (BaseType::PlaceHolder, _) | (_, BaseType::PlaceHolder) => true, // Can always compare with ?
-                        (BaseType::Null, _) | (_, BaseType::Null) => true, // Can always compare with NULL
+                        // 1. FAIL if both are placeholders
+                        (BaseType::PlaceHolder, BaseType::PlaceHolder) => {
+                            return Err(format!(
+                                "Unable to infer type '? {} ?'. Try Casting either one, or both of them",
+                                *op
+                            ));
+                        }
+
+                        (BaseType::PlaceHolder, _) | (_, BaseType::PlaceHolder) => true,
+
+                        // 3. Handle specific types
+                        (BaseType::Null, _) | (_, BaseType::Null) => true,
                         (BaseType::Integer, BaseType::Integer) => true,
                         (BaseType::Real, BaseType::Real) => true,
                         (BaseType::Text, BaseType::Text) => true,
                         (BaseType::Bool, BaseType::Bool) => true,
-                        // Allow Numeric cross-comparison
                         (BaseType::Integer, BaseType::Real)
                         | (BaseType::Real, BaseType::Integer) => true,
+
                         _ => false,
                     };
 
