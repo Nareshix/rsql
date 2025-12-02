@@ -74,49 +74,85 @@ pub fn get_type_of_binding_parameters(
                 _ => String::new(),
             };
 
-            let expected_types: Vec<Option<Type>> =
-                if let Some(table_cols) = all_tables.get(&t_name) {
-                    if insert_node.columns.is_empty() {
-                        // Implicit: Use all columns in definition order
-                        table_cols
-                            .iter()
-                            .map(|c| Some(c.data_type.clone()))
-                            .collect()
-                    } else {
-                        // Explicit: Match provided column identifiers
-                        insert_node
-                            .columns
-                            .iter()
-                            .map(|ident| {
-                                table_cols
-                                    .iter()
-                                    .find(|c| c.name == ident.value)
-                                    .map(|c| c.data_type.clone())
-                            })
-                            .collect()
-                    }
+            let expected_types = if let Some(table_cols) = all_tables.get(&t_name) {
+                if insert_node.columns.is_empty() {
+                    // Implicit: Use all columns in definition order
+                    table_cols
+                        .iter()
+                        .map(|c| Some(c.data_type.clone()))
+                        .collect()
                 } else {
-                    Vec::new()
-                };
+                    // Explicit: Match provided column identifiers
+                    insert_node
+                        .columns
+                        .iter()
+                        .map(|ident| {
+                            table_cols
+                                .iter()
+                                .find(|c| c.name == ident.value)
+                                .map(|c| c.data_type.clone())
+                        })
+                        .collect()
+                }
+            } else {
+                Vec::new()
+            };
 
-            if let Some(source_query) = &insert_node.source
-                && let sqlparser::ast::SetExpr::Values(values) = &*source_query.body
-            {
-                for row in &values.rows {
-                    for (idx, expr) in row.iter().enumerate() {
-                        let hint = expected_types.get(idx).cloned().flatten();
-                        traverse_expr(expr, &table_names, all_tables, &mut results, hint)?;
+            if let Some(source_query) = &insert_node.source {
+                match &*source_query.body {
+                    // Case A: INSERT ... VALUES (...)
+                    sqlparser::ast::SetExpr::Values(values) => {
+                        for row in &values.rows {
+                            for (idx, expr) in row.iter().enumerate() {
+                                let hint = expected_types.get(idx).cloned().flatten();
+                                traverse_expr(expr, &table_names, all_tables, &mut results, hint)?;
+                            }
+                        }
+                    }
+                    // Case B: INSERT ... SELECT ...
+                    sqlparser::ast::SetExpr::Select(select) => {
+                        // We need to map the expected types to the projection columns of the SELECT
+                        for (idx, item) in select.projection.iter().enumerate() {
+                            let hint = expected_types.get(idx).cloned().flatten();
+
+                            match item {
+                                sqlparser::ast::SelectItem::UnnamedExpr(expr)
+                                | sqlparser::ast::SelectItem::ExprWithAlias { expr, .. } => {
+                                    // Use the hint from the target table!
+                                    traverse_expr(
+                                        expr,
+                                        &table_names,
+                                        all_tables,
+                                        &mut results,
+                                        hint,
+                                    )?;
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        // traverse the rest of the query (WHERE clauses, etc.)
+                        // passing None as hint for the rest
+                        if let Some(selection) = &select.selection {
+                            traverse_expr(selection, &table_names, all_tables, &mut results, None)?;
+                        }
+                    }
+                    _ => {
+                        // For other cases (e.g. UNION), just traverse blindly
+                        traverse_query(
+                            source_query,
+                            &table_names,
+                            &mut working_tables,
+                            &mut results,
+                        )?;
                     }
                 }
             }
         }
-
         _ => {}
     }
-
     Ok(results)
 }
-// Custom recursive function
 fn traverse_expr(
     expr: &Expr,
     table_names: &Vec<String>,
@@ -199,6 +235,30 @@ fn traverse_expr(
             }
             Ok(())
         }
+        // In traverse_expr match block:
+        Expr::IsNull(expr) | Expr::IsNotNull(expr) => {
+            // We cannot infer type from "IS NULL", but we must verify the child doesn't contain a raw placeholder
+            traverse_expr(expr, table_names, all_tables, results, None)?;
+            Ok(())
+        }
+
+        Expr::IsTrue(expr)
+        | Expr::IsFalse(expr)
+        | Expr::IsNotTrue(expr)
+        | Expr::IsNotFalse(expr) => {
+            traverse_expr(
+                expr,
+                table_names,
+                all_tables,
+                results,
+                Some(Type {
+                    base_type: BaseType::Bool,
+                    nullable: false,
+                    contains_placeholder: false,
+                }),
+            )?;
+            Ok(())
+        }
         Expr::UnaryOp { expr, .. } => {
             traverse_expr(expr, table_names, all_tables, results, parent_hint)?;
             Ok(())
@@ -263,20 +323,34 @@ fn traverse_expr(
         Expr::Nested(inner) => traverse_expr(inner, table_names, all_tables, results, parent_hint),
 
         Expr::InList { expr, list, .. } => {
-            // Traverse LHS
-            traverse_expr(expr, table_names, all_tables, results, None)?; // TODO: Hint?
+            // First, check the Left Side (e.g. "id IN ...")
+            let mut common_type = evaluate_expr_type(expr, table_names, all_tables)
+                .ok()
+                .filter(|t| {
+                    t.base_type != BaseType::PlaceHolder && t.base_type != BaseType::Unknowns
+                });
 
-            let lhs_type = evaluate_expr_type(expr, table_names, all_tables)?;
-
-            for item in list {
-                traverse_expr(
-                    item,
-                    table_names,
-                    all_tables,
-                    results,
-                    Some(lhs_type.clone()),
-                )?;
+            // If Left Side gave nothing (it was '?'), check the List (e.g. "... IN (1, 2)")
+            if common_type.is_none() {
+                for item in list {
+                    if let Ok(t) = evaluate_expr_type(item, table_names, all_tables)
+                        && t.base_type != BaseType::PlaceHolder && t.base_type != BaseType::Unknowns
+                        {
+                            common_type = Some(t);
+                            break;
+                        }
+                }
             }
+
+            // 2. Traverse the Left Side with the Context
+            // (If common_type is None here, this will trigger the "Ambiguous" error on the LHS ?)
+            traverse_expr(expr, table_names, all_tables, results, common_type.clone())?;
+
+            // 3. Traverse the List with the Context
+            for item in list {
+                traverse_expr(item, table_names, all_tables, results, common_type.clone())?;
+            }
+
             Ok(())
         }
         Expr::Between {
