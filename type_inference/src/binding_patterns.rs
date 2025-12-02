@@ -1,7 +1,8 @@
 use crate::expr::{BaseType, Type, evaluate_expr_type};
 use crate::table::{ColumnInfo, get_table_names};
 use sqlparser::ast::{
-    BinaryOperator, DataType, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, Statement,
+    BinaryOperator, DataType, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, SetExpr,
+    Statement,
 };
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
@@ -18,6 +19,12 @@ pub fn get_type_of_binding_parameters(
     let table_names = get_table_names(sql);
     let mut results = Vec::new();
 
+    let bool_hint = Some(Type {
+        base_type: BaseType::Bool,
+        nullable: false,
+        contains_placeholder: false,
+    });
+
     match statement {
         Statement::Query(q) => {
             traverse_query(q, &table_names, &mut working_tables, &mut results)?;
@@ -25,7 +32,7 @@ pub fn get_type_of_binding_parameters(
 
         Statement::Delete(delete_node) => {
             if let Some(expr) = &delete_node.selection {
-                traverse_expr(expr, &table_names, all_tables, &mut results, None)?;
+                traverse_expr(expr, &table_names, all_tables, &mut results, bool_hint.clone())?;
             }
         }
 
@@ -64,7 +71,7 @@ pub fn get_type_of_binding_parameters(
 
             // WHERE Clause
             if let Some(expr) = selection {
-                traverse_expr(expr, &table_names, all_tables, &mut results, None)?;
+                traverse_expr(expr, &table_names, all_tables, &mut results, bool_hint.clone())?;
             }
         }
 
@@ -101,7 +108,7 @@ pub fn get_type_of_binding_parameters(
             if let Some(source_query) = &insert_node.source {
                 match &*source_query.body {
                     // Case A: INSERT ... VALUES (...)
-                    sqlparser::ast::SetExpr::Values(values) => {
+                    SetExpr::Values(values) => {
                         for row in &values.rows {
                             for (idx, expr) in row.iter().enumerate() {
                                 let hint = expected_types.get(idx).cloned().flatten();
@@ -110,7 +117,7 @@ pub fn get_type_of_binding_parameters(
                         }
                     }
                     // Case B: INSERT ... SELECT ...
-                    sqlparser::ast::SetExpr::Select(select) => {
+                    SetExpr::Select(select) => {
                         // We need to map the expected types to the projection columns of the SELECT
                         for (idx, item) in select.projection.iter().enumerate() {
                             let hint = expected_types.get(idx).cloned().flatten();
@@ -137,6 +144,7 @@ pub fn get_type_of_binding_parameters(
                             traverse_expr(selection, &table_names, all_tables, &mut results, None)?;
                         }
                     }
+
                     _ => {
                         // For other cases (e.g. UNION), just traverse blindly
                         traverse_query(
@@ -146,6 +154,43 @@ pub fn get_type_of_binding_parameters(
                             &mut results,
                         )?;
                     }
+                }
+            }
+            if let Some(on_insert) = &insert_node.on
+                && let sqlparser::ast::OnInsert::OnConflict(on_conflict) = on_insert
+                && let sqlparser::ast::OnConflictAction::DoUpdate(do_update) = &on_conflict.action
+            {
+                // 1. Traverse Assignments: DO UPDATE SET name = ?
+                for assignment in &do_update.assignments {
+                    // Reuse the same logic from Statement::Update to find column name
+                    let col_name = match &assignment.target {
+                        sqlparser::ast::AssignmentTarget::ColumnName(obj_name) => {
+                            obj_name.0.last().map(|p| p.to_string()).unwrap_or_default()
+                        }
+                        _ => String::new(),
+                    };
+
+                    // Look up hints using the table name (t_name) we found earlier
+                    let mut hint = None;
+                    if !col_name.is_empty()
+                        && let Some(cols) = all_tables.get(&t_name)
+                        && let Some(col_info) = cols.iter().find(|c| c.name == col_name)
+                    {
+                        hint = Some(col_info.data_type.clone());
+                    }
+
+                    traverse_expr(
+                        &assignment.value,
+                        &table_names,
+                        all_tables,
+                        &mut results,
+                        hint,
+                    )?;
+                }
+
+                // 2. Traverse Selection: DO UPDATE ... WHERE ?
+                if let Some(selection) = &do_update.selection {
+                    traverse_expr(selection, &table_names, all_tables, &mut results, bool_hint.clone())?;
                 }
             }
         }
@@ -334,11 +379,12 @@ fn traverse_expr(
             if common_type.is_none() {
                 for item in list {
                     if let Ok(t) = evaluate_expr_type(item, table_names, all_tables)
-                        && t.base_type != BaseType::PlaceHolder && t.base_type != BaseType::Unknowns
-                        {
-                            common_type = Some(t);
-                            break;
-                        }
+                        && t.base_type != BaseType::PlaceHolder
+                        && t.base_type != BaseType::Unknowns
+                    {
+                        common_type = Some(t);
+                        break;
+                    }
                 }
             }
 
@@ -922,10 +968,21 @@ fn traverse_set_expr(
                 }
             }
 
+            let bool_hint = Some(Type {
+                base_type: BaseType::Bool,
+                nullable: false,
+                contains_placeholder: false,
+            });
+
             // 3. Process WHERE (Aliases NOT visible here)
-            // This fixes the shadowing issue. It will only see the real table column.
             if let Some(selection) = &select.selection {
-                traverse_expr(selection, &local_scope_tables, all_tables, results, None)?;
+                traverse_expr(
+                    selection,
+                    &local_scope_tables,
+                    all_tables,
+                    results,
+                    bool_hint.clone(),
+                )?;
             }
 
             // 4. NOW Inject Aliases (Visible for HAVING, GROUP BY, etc.)
@@ -937,7 +994,7 @@ fn traverse_set_expr(
 
             // 5. Process HAVING (Aliases ARE visible here)
             if let Some(having) = &select.having {
-                traverse_expr(having, &local_scope_tables, all_tables, results, None)?;
+                traverse_expr(having, &local_scope_tables, all_tables, results, bool_hint.clone())?;
             }
         }
 
