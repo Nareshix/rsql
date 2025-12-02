@@ -258,20 +258,15 @@ pub fn evaluate_expr_type(
             })
         }
 
-        Expr::InSubquery { expr, subquery, .. } => {
+        Expr::InSubquery { expr, .. } => {
             let _lhs = evaluate_expr_type(expr, table_names_from_select, all_tables)?;
-
-
-            //TODO subquery
-            // could recurse into the subquery here if you wanted, but for type evaluation
-            // we just need to know that "IN" returns a Boolean.
 
             let lhs_contains_placeholder = _lhs.contains_placeholder; // simplistic propagation
             let lhs_nullable = _lhs.nullable;
 
             Ok(Type {
                 base_type: BaseType::Bool,
-                nullable: lhs_nullable, 
+                nullable: lhs_nullable,
                 contains_placeholder: lhs_contains_placeholder,
             })
         }
