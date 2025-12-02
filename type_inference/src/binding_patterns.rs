@@ -19,6 +19,18 @@ pub fn get_type_of_binding_parameters(
     match statement {
         sqlparser::ast::Statement::Query(q) => {
             if let sqlparser::ast::SetExpr::Select(select) = &*q.body {
+                for item in &select.projection {
+                    match item {
+                        sqlparser::ast::SelectItem::UnnamedExpr(expr)
+                        | sqlparser::ast::SelectItem::ExprWithAlias { expr, .. } => {
+                            // We pass None as hint because usually top-level SELECTs don't imply a type,
+                            // UNLESS it is a Cast (handled inside traverse_expr)
+                            traverse_expr(expr, &table_names, all_tables, &mut results, None)?;
+                        }
+                        // reaching here means, SELECT *. There is no expressions to check
+                        _ => {}
+                    }
+                }
                 // WHERE
                 if let Some(selection) = &select.selection {
                     traverse_expr(selection, &table_names, all_tables, &mut results, None)?;
