@@ -1,6 +1,8 @@
 use crate::expr::{BaseType, Type, evaluate_expr_type};
 use crate::table::{ColumnInfo, get_table_names};
-use sqlparser::ast::{BinaryOperator, DataType, Expr, FunctionArg, FunctionArgExpr, FunctionArguments};
+use sqlparser::ast::{
+    BinaryOperator, DataType, Expr, FunctionArg, FunctionArgExpr, FunctionArguments,
+};
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 use std::collections::HashMap;
@@ -14,16 +16,107 @@ pub fn get_type_of_binding_parameters(
     let table_names = get_table_names(sql);
     let mut results = Vec::new();
 
-    //  extracting WHERE clause
-    if let sqlparser::ast::Statement::Query(q) = statement
-        && let Some(selection) = &q.body.as_select().unwrap().selection
-    {
-        traverse_expr(selection, &table_names, all_tables, &mut results, None)?;
+    match statement {
+        sqlparser::ast::Statement::Query(q) => {
+            if let sqlparser::ast::SetExpr::Select(select) = &*q.body {
+                // WHERE
+                if let Some(selection) = &select.selection {
+                    traverse_expr(selection, &table_names, all_tables, &mut results, None)?;
+                }
+                // HAVING
+                if let Some(having) = &select.having {
+                    traverse_expr(having, &table_names, all_tables, &mut results, None)?;
+                }
+            }
+
+            // LIMIT / OFFSET
+            if let Some(limit_clause) = &q.limit_clause {
+                let int_hint = Some(Type {
+                    base_type: BaseType::Integer, nullable: false, contains_placeholder: false,
+                });
+
+                if let sqlparser::ast::LimitClause::LimitOffset { limit, offset, .. } = limit_clause {
+                    if let Some(limit_expr) = limit {
+                        traverse_expr(limit_expr, &table_names, all_tables, &mut results, int_hint.clone())?;
+                    }
+                    if let Some(offset_struct) = offset {
+                        traverse_expr(&offset_struct.value, &table_names, all_tables, &mut results, int_hint)?;
+                    }
+                }
+            }
+        }
+
+        sqlparser::ast::Statement::Delete(delete_node) => {
+            if let Some(expr) = &delete_node.selection {
+                traverse_expr(expr, &table_names, all_tables, &mut results, None)?;
+            }
+        }
+
+        sqlparser::ast::Statement::Update { assignments, selection, table, .. } => {
+            let table_name = table.relation.to_string();
+
+            for assignment in assignments {
+                let col_name = match &assignment.target {
+                    sqlparser::ast::AssignmentTarget::ColumnName(obj_name) => {
+                        obj_name.0.last().map(|p| p.to_string()).unwrap_or_default()
+                    },
+                    _ => String::new(), // Skip tuple assignments for now
+                };
+
+                let mut hint = None;
+                if !col_name.is_empty()
+                    && let Some(cols) = all_tables.get(&table_name)
+                        && let Some(col_info) = cols.iter().find(|c| c.name == col_name) {
+                            hint = Some(col_info.data_type.clone());
+                        }
+
+                traverse_expr(&assignment.value, &table_names, all_tables, &mut results, hint)?;
+            }
+
+            // WHERE Clause
+            if let Some(expr) = selection {
+                traverse_expr(expr, &table_names, all_tables, &mut results, None)?;
+            }
+        }
+
+        sqlparser::ast::Statement::Insert(insert_node) => {
+            let t_name = match &insert_node.table {
+                sqlparser::ast::TableObject::TableName(obj_name) => obj_name.to_string(),
+                _ => String::new(),
+            };
+
+            let expected_types: Vec<Option<Type>> = if let Some(table_cols) = all_tables.get(&t_name) {
+                if insert_node.columns.is_empty() {
+                    // Implicit: Use all columns in definition order
+                    table_cols.iter().map(|c| Some(c.data_type.clone())).collect()
+                } else {
+                    // Explicit: Match provided column identifiers
+                    insert_node.columns.iter().map(|ident| {
+                        table_cols.iter()
+                            .find(|c| c.name == ident.value)
+                            .map(|c| c.data_type.clone())
+                    }).collect()
+                }
+            } else {
+                Vec::new()
+            };
+
+            if let Some(source_query) = &insert_node.source
+                && let sqlparser::ast::SetExpr::Values(values) = &*source_query.body {
+                    for row in &values.rows {
+                        for (idx, expr) in row.iter().enumerate() {
+                            let hint = expected_types.get(idx).cloned().flatten();
+                            traverse_expr(expr, &table_names, all_tables, &mut results, hint)?;
+                        }
+                    }
+                }
+        }
+
+        _ => {}
     }
 
     Ok(results)
 }
-
 // Custom recursive function
 fn traverse_expr(
     expr: &Expr,
@@ -55,15 +148,11 @@ fn traverse_expr(
                 | BinaryOperator::Lt
                 | BinaryOperator::GtEq
                 | BinaryOperator::LtEq
-                | BinaryOperator::NotEq => {
-                    (Some(right_type), Some(left_type))
-                }
+                | BinaryOperator::NotEq => (Some(right_type), Some(left_type)),
                 BinaryOperator::Plus
                 | BinaryOperator::Minus
                 | BinaryOperator::Multiply
-                | BinaryOperator::Divide => {
-                    (Some(right_type), Some(left_type))
-                }
+                | BinaryOperator::Divide => (Some(right_type), Some(left_type)),
                 _ => (None, None),
             };
 
@@ -182,40 +271,89 @@ fn traverse_expr(
 
             let expects_text = matches!(
                 name.as_str(),
-                "LOWER" | "UPPER" | "LTRIM" | "RTRIM" | "TRIM" | "REPLACE" |
-                "SUBSTR" | "SUBSTRING" | "CONCAT" | "CONCAT_WS" | "LENGTH" |
-                "OCTET_LENGTH" | "INSTR" | "GLOB" | "LIKE" | "DATE" | "TIME" | "DATETIME"
+                "LOWER"
+                    | "UPPER"
+                    | "LTRIM"
+                    | "RTRIM"
+                    | "TRIM"
+                    | "REPLACE"
+                    | "SUBSTR"
+                    | "SUBSTRING"
+                    | "CONCAT"
+                    | "CONCAT_WS"
+                    | "LENGTH"
+                    | "OCTET_LENGTH"
+                    | "INSTR"
+                    | "GLOB"
+                    | "LIKE"
+                    | "DATE"
+                    | "TIME"
+                    | "DATETIME"
             );
 
             // Bucket 2: Functions that expect NUMERIC inputs (Real or Int)
             let expects_number = matches!(
                 name.as_str(),
-                "ABS" | "ROUND" | "CEIL" | "FLOOR" | "SIN" | "COS" | "TAN" |
-                "ASIN" | "ACOS" | "ATAN" | "SQRT" | "POW" | "POWER" | "LOG" |
-                "LOG10" | "EXP" | "DEGREES" | "RADIANS" | "SIGN" | "MOD"
+                "ABS"
+                    | "ROUND"
+                    | "CEIL"
+                    | "FLOOR"
+                    | "SIN"
+                    | "COS"
+                    | "TAN"
+                    | "ASIN"
+                    | "ACOS"
+                    | "ATAN"
+                    | "SQRT"
+                    | "POW"
+                    | "POWER"
+                    | "LOG"
+                    | "LOG10"
+                    | "EXP"
+                    | "DEGREES"
+                    | "RADIANS"
+                    | "SIGN"
+                    | "MOD"
             );
 
             let is_polymorphic = matches!(
                 name.as_str(),
-                "COALESCE" | "IFNULL" | "MIN" | "MAX" | "SUM" | "LEAD" | "LAG" |
-                "NULLIF" | "FIRST_VALUE" | "LAST_VALUE"
+                "COALESCE"
+                    | "IFNULL"
+                    | "MIN"
+                    | "MAX"
+                    | "SUM"
+                    | "LEAD"
+                    | "LAG"
+                    | "NULLIF"
+                    | "FIRST_VALUE"
+                    | "LAST_VALUE"
             );
 
             let arg_hint = if expects_text {
-                Some(Type { base_type: BaseType::Text, nullable: true, contains_placeholder: false })
+                Some(Type {
+                    base_type: BaseType::Text,
+                    nullable: true,
+                    contains_placeholder: false,
+                })
             } else if expects_number {
-                Some(Type { base_type: BaseType::Real, nullable: true, contains_placeholder: false })
+                Some(Type {
+                    base_type: BaseType::Real,
+                    nullable: true,
+                    contains_placeholder: false,
+                })
             } else if is_polymorphic {
                 // TODO check if this actually works
                 let mut found_sibling = None;
                 if let FunctionArguments::List(args_list) = &func.args {
                     for arg in &args_list.args {
                         if let FunctionArg::Unnamed(FunctionArgExpr::Expr(arg_expr)) = arg
-                             && let Ok(t) = evaluate_expr_type(arg_expr, table_names, all_tables)
-                                 && t.base_type != BaseType::PlaceHolder {
-                                     found_sibling = Some(t);
-                                     break;
-                                 }
+                            && let Ok(t) = evaluate_expr_type(arg_expr, table_names, all_tables)
+                            && t.base_type != BaseType::PlaceHolder
+                        {
+                            found_sibling = Some(t);
+                            break;
+                        }
                     }
                 }
                 // Use sibling type if found, otherwise fallback to what the parent expected of this function
@@ -228,7 +366,13 @@ fn traverse_expr(
             if let FunctionArguments::List(args_list) = &func.args {
                 for arg in &args_list.args {
                     if let FunctionArg::Unnamed(FunctionArgExpr::Expr(arg_expr)) = arg {
-                        traverse_expr(arg_expr, table_names, all_tables, results, arg_hint.clone())?;
+                        traverse_expr(
+                            arg_expr,
+                            table_names,
+                            all_tables,
+                            results,
+                            arg_hint.clone(),
+                        )?;
                     }
                 }
             }
@@ -239,34 +383,67 @@ fn traverse_expr(
             let hint = Some(Type {
                 base_type: BaseType::Real,
                 nullable: true,
-                contains_placeholder: false
+                contains_placeholder: false,
             });
             traverse_expr(expr, table_names, all_tables, results, hint)?;
             Ok(())
         }
 
-        Expr::Substring { expr, substring_from, substring_for, .. } => {
-            traverse_expr(expr, table_names, all_tables, results, Some(Type {
-                base_type: BaseType::Text, nullable: true, contains_placeholder: false
-            }))?;
+        Expr::Substring {
+            expr,
+            substring_from,
+            substring_for,
+            ..
+        } => {
+            traverse_expr(
+                expr,
+                table_names,
+                all_tables,
+                results,
+                Some(Type {
+                    base_type: BaseType::Text,
+                    nullable: true,
+                    contains_placeholder: false,
+                }),
+            )?;
 
             if let Some(from_expr) = substring_from {
-                traverse_expr(from_expr, table_names, all_tables, results, Some(Type {
-                    base_type: BaseType::Integer, nullable: true, contains_placeholder: false
-                }))?;
+                traverse_expr(
+                    from_expr,
+                    table_names,
+                    all_tables,
+                    results,
+                    Some(Type {
+                        base_type: BaseType::Integer,
+                        nullable: true,
+                        contains_placeholder: false,
+                    }),
+                )?;
             }
 
             if let Some(for_expr) = substring_for {
-                traverse_expr(for_expr, table_names, all_tables, results, Some(Type {
-                    base_type: BaseType::Integer, nullable: true, contains_placeholder: false
-                }))?;
+                traverse_expr(
+                    for_expr,
+                    table_names,
+                    all_tables,
+                    results,
+                    Some(Type {
+                        base_type: BaseType::Integer,
+                        nullable: true,
+                        contains_placeholder: false,
+                    }),
+                )?;
             }
             Ok(())
         }
 
-        Expr::Trim { expr, trim_what, .. } => {
+        Expr::Trim {
+            expr, trim_what, ..
+        } => {
             let text_hint = Some(Type {
-                base_type: BaseType::Text, nullable: true, contains_placeholder: false
+                base_type: BaseType::Text,
+                nullable: true,
+                contains_placeholder: false,
             });
 
             traverse_expr(expr, table_names, all_tables, results, text_hint.clone())?;
