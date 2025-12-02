@@ -578,108 +578,7 @@ fn traverse_query(
 
     Ok(())
 }
-// binding_pattern.rs
-
-#[allow(unused)]
-fn traverse_set_expr(
-    set_expr: &sqlparser::ast::SetExpr,
-    outer_scope: &Vec<String>,
-    all_tables: &mut HashMap<String, Vec<ColumnInfo>>,
-    results: &mut Vec<Type>,
-) -> Result<(), String> {
-    match set_expr {
-        sqlparser::ast::SetExpr::Select(select) => {
-            let mut local_scope_tables = Vec::new();
-
-            // Helper closure to register aliases
-            // We need to use a closure or loop to avoid borrowing issues
-            let mut register_table = |relation: &sqlparser::ast::TableFactor| {
-                if let sqlparser::ast::TableFactor::Table { name, alias, .. } = relation {
-                    let real_name = name.to_string();
-                    let effective_name = if let Some(a) = alias {
-                        let alias_name = a.name.value.clone();
-                        // If we have an alias, look up the real table and register the alias
-                        if let Some(cols) = all_tables.get(&real_name).cloned() {
-                            all_tables.insert(alias_name.clone(), cols);
-                        }
-                        alias_name
-                    } else {
-                        real_name
-                    };
-                    local_scope_tables.push(effective_name);
-                }
-            };
-
-            for table_with_joins in &select.from {
-                // 1. Register main table
-                register_table(&table_with_joins.relation);
-
-                // 2. Register joined tables
-                for join in &table_with_joins.joins {
-                    register_table(&join.relation);
-                }
-            }
-
-            // Projections
-            for item in &select.projection {
-                if let sqlparser::ast::SelectItem::UnnamedExpr(expr)
-                | sqlparser::ast::SelectItem::ExprWithAlias { expr, .. } = item
-                {
-                    traverse_expr(expr, &local_scope_tables, all_tables, results, None)?;
-                }
-            }
-
-            // Joins / ON clauses
-            for table_with_joins in &select.from {
-                for join in &table_with_joins.joins {
-                    let constraint = match &join.join_operator {
-                        sqlparser::ast::JoinOperator::Inner(c)
-                        | sqlparser::ast::JoinOperator::Left(c)
-                        | sqlparser::ast::JoinOperator::LeftOuter(c)
-                        | sqlparser::ast::JoinOperator::Right(c)
-                        | sqlparser::ast::JoinOperator::RightOuter(c)
-                        | sqlparser::ast::JoinOperator::FullOuter(c)
-                        | sqlparser::ast::JoinOperator::Join(c)
-                        | sqlparser::ast::JoinOperator::CrossJoin(c) => Some(c),
-                        _ => None,
-                    };
-
-                    if let Some(sqlparser::ast::JoinConstraint::On(expr)) = constraint {
-                        traverse_expr(expr, &local_scope_tables, all_tables, results, None)?;
-                    }
-                }
-            }
-            // WHERE
-            if let Some(selection) = &select.selection {
-                traverse_expr(selection, &local_scope_tables, all_tables, results, None)?;
-            }
-            // HAVING
-            if let Some(having) = &select.having {
-                traverse_expr(having, &local_scope_tables, all_tables, results, None)?;
-            }
-        }
-
-        sqlparser::ast::SetExpr::SetOperation { left, right, .. } => {
-            traverse_set_expr(left, outer_scope, all_tables, results)?;
-            traverse_set_expr(right, outer_scope, all_tables, results)?;
-        }
-
-        sqlparser::ast::SetExpr::Query(q) => {
-            traverse_query(q, outer_scope, all_tables, results)?;
-        }
-
-        sqlparser::ast::SetExpr::Values(values) => {
-            for row in &values.rows {
-                for expr in row {
-                    traverse_expr(expr, outer_scope, all_tables, results, None)?;
-                }
-            }
-        }
-        _ => {}
-    }
-    Ok(())
-}
-// binding_pattern.rs
+// binding_patterns.rs
 
 fn infer_cte_columns(
     query: &sqlparser::ast::Query,
@@ -753,4 +652,130 @@ fn infer_cte_columns(
         return cols;
     }
     vec![]
+}
+
+
+#[allow(unused)]
+fn traverse_set_expr(
+    set_expr: &sqlparser::ast::SetExpr,
+    outer_scope: &Vec<String>,
+    all_tables: &mut HashMap<String, Vec<ColumnInfo>>,
+    results: &mut Vec<Type>,
+) -> Result<(), String> {
+    match set_expr {
+        sqlparser::ast::SetExpr::Select(select) => {
+            let mut local_scope_tables = Vec::new();
+
+            // Helper closure to register aliases
+            let mut register_table = |relation: &sqlparser::ast::TableFactor| {
+                if let sqlparser::ast::TableFactor::Table { name, alias, .. } = relation {
+                    let real_name = name.to_string();
+                    let effective_name = if let Some(a) = alias {
+                        let alias_name = a.name.value.clone();
+                        if let Some(cols) = all_tables.get(&real_name).cloned() {
+                            all_tables.insert(alias_name.clone(), cols);
+                        }
+                        alias_name
+                    } else {
+                        real_name
+                    };
+                    local_scope_tables.push(effective_name);
+                }
+            };
+
+            for table_with_joins in &select.from {
+                register_table(&table_with_joins.relation);
+                for join in &table_with_joins.joins {
+                    register_table(&join.relation);
+                }
+            }
+
+            // 1. Collect Projections (but do NOT register them yet)
+            let mut projected_aliases = Vec::new();
+            for item in &select.projection {
+                match item {
+                    sqlparser::ast::SelectItem::UnnamedExpr(expr) => {
+                        traverse_expr(expr, &local_scope_tables, all_tables, results, None)?;
+                    }
+                    sqlparser::ast::SelectItem::ExprWithAlias { expr, alias } => {
+                        traverse_expr(expr, &local_scope_tables, all_tables, results, None)?;
+
+                        let derived_type =
+                            evaluate_expr_type(expr, &local_scope_tables, all_tables).unwrap_or(
+                                Type {
+                                    base_type: BaseType::Unknowns,
+                                    nullable: true,
+                                    contains_placeholder: false,
+                                },
+                            );
+
+                        projected_aliases.push(ColumnInfo {
+                            name: alias.value.clone(),
+                            data_type: derived_type,
+                            check_constraint: None,
+                        });
+                    }
+                    _ => {}
+                }
+            }
+
+            // 2. Process Joins / ON clauses (Aliases not visible here)
+            for table_with_joins in &select.from {
+                for join in &table_with_joins.joins {
+                    let constraint = match &join.join_operator {
+                        sqlparser::ast::JoinOperator::Inner(c)
+                        | sqlparser::ast::JoinOperator::Left(c)
+                        | sqlparser::ast::JoinOperator::LeftOuter(c)
+                        | sqlparser::ast::JoinOperator::Right(c)
+                        | sqlparser::ast::JoinOperator::RightOuter(c)
+                        | sqlparser::ast::JoinOperator::FullOuter(c)
+                        | sqlparser::ast::JoinOperator::Join(c)
+                        | sqlparser::ast::JoinOperator::CrossJoin(c) => Some(c),
+                        _ => None,
+                    };
+
+                    if let Some(sqlparser::ast::JoinConstraint::On(expr)) = constraint {
+                        traverse_expr(expr, &local_scope_tables, all_tables, results, None)?;
+                    }
+                }
+            }
+
+            // 3. Process WHERE (Aliases NOT visible here)
+            // This fixes the shadowing issue. It will only see the real table column.
+            if let Some(selection) = &select.selection {
+                traverse_expr(selection, &local_scope_tables, all_tables, results, None)?;
+            }
+
+            // 4. NOW Inject Aliases (Visible for HAVING, GROUP BY, etc.)
+            if !projected_aliases.is_empty() {
+                let virtual_alias_table = "$_current_scope_aliases_$".to_string();
+                all_tables.insert(virtual_alias_table.clone(), projected_aliases);
+                local_scope_tables.push(virtual_alias_table);
+            }
+
+            // 5. Process HAVING (Aliases ARE visible here)
+            if let Some(having) = &select.having {
+                traverse_expr(having, &local_scope_tables, all_tables, results, None)?;
+            }
+        }
+
+        sqlparser::ast::SetExpr::SetOperation { left, right, .. } => {
+            traverse_set_expr(left, outer_scope, all_tables, results)?;
+            traverse_set_expr(right, outer_scope, all_tables, results)?;
+        }
+
+        sqlparser::ast::SetExpr::Query(q) => {
+            traverse_query(q, outer_scope, all_tables, results)?;
+        }
+
+        sqlparser::ast::SetExpr::Values(values) => {
+            for row in &values.rows {
+                for expr in row {
+                    traverse_expr(expr, outer_scope, all_tables, results, None)?;
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
