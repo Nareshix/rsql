@@ -1,7 +1,7 @@
 use crate::expr::{BaseType, Type, evaluate_expr_type};
 use crate::table::{ColumnInfo, get_table_names};
 use sqlparser::ast::{
-    BinaryOperator, DataType, Expr, FunctionArg, FunctionArgExpr, FunctionArguments,
+    BinaryOperator, DataType, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, Statement,
 };
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
@@ -17,7 +17,7 @@ pub fn get_type_of_binding_parameters(
     let mut results = Vec::new();
 
     match statement {
-        sqlparser::ast::Statement::Query(q) => {
+        Statement::Query(q) => {
             if let sqlparser::ast::SetExpr::Select(select) = &*q.body {
                 for item in &select.projection {
                     match item {
@@ -44,45 +44,72 @@ pub fn get_type_of_binding_parameters(
             // LIMIT / OFFSET
             if let Some(limit_clause) = &q.limit_clause {
                 let int_hint = Some(Type {
-                    base_type: BaseType::Integer, nullable: false, contains_placeholder: false,
+                    base_type: BaseType::Integer,
+                    nullable: false,
+                    contains_placeholder: false,
                 });
 
-                if let sqlparser::ast::LimitClause::LimitOffset { limit, offset, .. } = limit_clause {
+                if let sqlparser::ast::LimitClause::LimitOffset { limit, offset, .. } = limit_clause
+                {
                     if let Some(limit_expr) = limit {
-                        traverse_expr(limit_expr, &table_names, all_tables, &mut results, int_hint.clone())?;
+                        traverse_expr(
+                            limit_expr,
+                            &table_names,
+                            all_tables,
+                            &mut results,
+                            int_hint.clone(),
+                        )?;
                     }
                     if let Some(offset_struct) = offset {
-                        traverse_expr(&offset_struct.value, &table_names, all_tables, &mut results, int_hint)?;
+                        traverse_expr(
+                            &offset_struct.value,
+                            &table_names,
+                            all_tables,
+                            &mut results,
+                            int_hint,
+                        )?;
                     }
                 }
             }
         }
 
-        sqlparser::ast::Statement::Delete(delete_node) => {
+        Statement::Delete(delete_node) => {
             if let Some(expr) = &delete_node.selection {
                 traverse_expr(expr, &table_names, all_tables, &mut results, None)?;
             }
         }
 
-        sqlparser::ast::Statement::Update { assignments, selection, table, .. } => {
+        Statement::Update {
+            assignments,
+            selection,
+            table,
+            ..
+        } => {
             let table_name = table.relation.to_string();
 
             for assignment in assignments {
                 let col_name = match &assignment.target {
                     sqlparser::ast::AssignmentTarget::ColumnName(obj_name) => {
                         obj_name.0.last().map(|p| p.to_string()).unwrap_or_default()
-                    },
+                    }
                     _ => String::new(), // Skip tuple assignments for now
                 };
 
                 let mut hint = None;
                 if !col_name.is_empty()
                     && let Some(cols) = all_tables.get(&table_name)
-                        && let Some(col_info) = cols.iter().find(|c| c.name == col_name) {
-                            hint = Some(col_info.data_type.clone());
-                        }
+                    && let Some(col_info) = cols.iter().find(|c| c.name == col_name)
+                {
+                    hint = Some(col_info.data_type.clone());
+                }
 
-                traverse_expr(&assignment.value, &table_names, all_tables, &mut results, hint)?;
+                traverse_expr(
+                    &assignment.value,
+                    &table_names,
+                    all_tables,
+                    &mut results,
+                    hint,
+                )?;
             }
 
             // WHERE Clause
@@ -91,37 +118,47 @@ pub fn get_type_of_binding_parameters(
             }
         }
 
-        sqlparser::ast::Statement::Insert(insert_node) => {
+        Statement::Insert(insert_node) => {
             let t_name = match &insert_node.table {
                 sqlparser::ast::TableObject::TableName(obj_name) => obj_name.to_string(),
                 _ => String::new(),
             };
 
-            let expected_types: Vec<Option<Type>> = if let Some(table_cols) = all_tables.get(&t_name) {
-                if insert_node.columns.is_empty() {
-                    // Implicit: Use all columns in definition order
-                    table_cols.iter().map(|c| Some(c.data_type.clone())).collect()
+            let expected_types: Vec<Option<Type>> =
+                if let Some(table_cols) = all_tables.get(&t_name) {
+                    if insert_node.columns.is_empty() {
+                        // Implicit: Use all columns in definition order
+                        table_cols
+                            .iter()
+                            .map(|c| Some(c.data_type.clone()))
+                            .collect()
+                    } else {
+                        // Explicit: Match provided column identifiers
+                        insert_node
+                            .columns
+                            .iter()
+                            .map(|ident| {
+                                table_cols
+                                    .iter()
+                                    .find(|c| c.name == ident.value)
+                                    .map(|c| c.data_type.clone())
+                            })
+                            .collect()
+                    }
                 } else {
-                    // Explicit: Match provided column identifiers
-                    insert_node.columns.iter().map(|ident| {
-                        table_cols.iter()
-                            .find(|c| c.name == ident.value)
-                            .map(|c| c.data_type.clone())
-                    }).collect()
-                }
-            } else {
-                Vec::new()
-            };
+                    Vec::new()
+                };
 
             if let Some(source_query) = &insert_node.source
-                && let sqlparser::ast::SetExpr::Values(values) = &*source_query.body {
-                    for row in &values.rows {
-                        for (idx, expr) in row.iter().enumerate() {
-                            let hint = expected_types.get(idx).cloned().flatten();
-                            traverse_expr(expr, &table_names, all_tables, &mut results, hint)?;
-                        }
+                && let sqlparser::ast::SetExpr::Values(values) = &*source_query.body
+            {
+                for row in &values.rows {
+                    for (idx, expr) in row.iter().enumerate() {
+                        let hint = expected_types.get(idx).cloned().flatten();
+                        traverse_expr(expr, &table_names, all_tables, &mut results, hint)?;
                     }
                 }
+            }
         }
 
         _ => {}
