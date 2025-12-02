@@ -7,6 +7,7 @@ use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 use std::collections::HashMap;
 
+#[allow(unused)]
 pub fn get_type_of_binding_parameters(
     sql: &str,
     all_tables: &mut HashMap<String, Vec<ColumnInfo>>,
@@ -148,6 +149,52 @@ fn traverse_expr(
             Ok(())
         }
 
+        Expr::Like {
+            expr,
+            pattern,
+            escape_char,
+            ..
+        } => {
+            traverse_expr(
+                expr,
+                table_names,
+                all_tables,
+                results,
+                Some(Type {
+                    base_type: BaseType::Text,
+                    nullable: true,
+                    contains_placeholder: false,
+                }),
+            )?;
+
+            traverse_expr(
+                pattern,
+                table_names,
+                all_tables,
+                results,
+                Some(Type {
+                    base_type: BaseType::Text,
+                    nullable: true,
+                    contains_placeholder: false,
+                }),
+            )?;
+
+            if let Some(escape) = escape_char {
+                let escape_expr = Expr::Value(escape.clone().into());
+                traverse_expr(
+                    &escape_expr,
+                    table_names,
+                    all_tables,
+                    results,
+                    Some(Type {
+                        base_type: BaseType::Text,
+                        nullable: true,
+                        contains_placeholder: false,
+                    }),
+                )?;
+            }
+            Ok(())
+        }
         Expr::BinaryOp { left, right, op } => {
             // evaluates types of children purely to get context for the OTHER child
             let left_type = evaluate_expr_type(left, table_names, all_tables)?;
@@ -165,6 +212,7 @@ fn traverse_expr(
                 BinaryOperator::Plus
                 | BinaryOperator::Minus
                 | BinaryOperator::Multiply
+                | BinaryOperator::Modulo
                 | BinaryOperator::Divide => (Some(right_type), Some(left_type)),
                 _ => (None, None),
             };
@@ -532,6 +580,7 @@ fn traverse_query(
 }
 // binding_pattern.rs
 
+#[allow(unused)]
 fn traverse_set_expr(
     set_expr: &sqlparser::ast::SetExpr,
     outer_scope: &Vec<String>,
@@ -630,16 +679,14 @@ fn traverse_set_expr(
     }
     Ok(())
 }
-
 // binding_pattern.rs
 
 fn infer_cte_columns(
     query: &sqlparser::ast::Query,
-    all_tables: &HashMap<String, Vec<ColumnInfo>>
+    all_tables: &HashMap<String, Vec<ColumnInfo>>,
 ) -> Vec<ColumnInfo> {
     if let sqlparser::ast::SetExpr::Select(select) = &*query.body {
-
-        // 1. Build the Scope (Tables used inside the CTE)
+        // 1. Build Scope
         let mut cte_scope = Vec::new();
         for table_with_joins in &select.from {
             if let sqlparser::ast::TableFactor::Table { name, .. } = &table_with_joins.relation {
@@ -654,30 +701,54 @@ fn infer_cte_columns(
 
         let mut cols = Vec::new();
         for (i, item) in select.projection.iter().enumerate() {
-            // 2. Infer Name
-            let col_name = match item {
-                sqlparser::ast::SelectItem::ExprWithAlias { alias, .. } => alias.value.clone(),
-                sqlparser::ast::SelectItem::UnnamedExpr(sqlparser::ast::Expr::Identifier(ident)) => ident.value.clone(),
-                _ => format!("col_{}", i),
-            };
-
-            // 3. Infer Type
-            let deduced_type = match item {
-                sqlparser::ast::SelectItem::UnnamedExpr(e) |
-                sqlparser::ast::SelectItem::ExprWithAlias { expr: e, .. } => {
-                    // FIX: Pass 'cte_scope' instead of empty vector
-                    evaluate_expr_type(e, &cte_scope, all_tables).unwrap_or(Type {
-                        base_type: BaseType::Unknowns, nullable: true, contains_placeholder: false
-                    })
-                },
-                _ => Type { base_type: BaseType::Unknowns, nullable: true, contains_placeholder: false }
-            };
-
-            cols.push(ColumnInfo {
-                name: col_name,
-                data_type: deduced_type,
-                check_constraint: None,
-            });
+            match item {
+                // FIX: Handle SELECT *
+                sqlparser::ast::SelectItem::Wildcard(_opt) => {
+                    for table_name in &cte_scope {
+                        if let Some(table_cols) = all_tables.get(table_name) {
+                            cols.extend(table_cols.clone());
+                        }
+                    }
+                }
+                // FIX: Handle SELECT table.*
+                sqlparser::ast::SelectItem::QualifiedWildcard(obj_name, _) => {
+                    let table_name = obj_name.to_string();
+                    if let Some(table_cols) = all_tables.get(&table_name) {
+                        cols.extend(table_cols.clone());
+                    }
+                }
+                // Normal columns
+                sqlparser::ast::SelectItem::ExprWithAlias { alias, expr } => {
+                    let deduced_type =
+                        evaluate_expr_type(expr, &cte_scope, all_tables).unwrap_or(Type {
+                            base_type: BaseType::Unknowns,
+                            nullable: true,
+                            contains_placeholder: false,
+                        });
+                    cols.push(ColumnInfo {
+                        name: alias.value.clone(),
+                        data_type: deduced_type,
+                        check_constraint: None,
+                    });
+                }
+                sqlparser::ast::SelectItem::UnnamedExpr(expr) => {
+                    let col_name = match expr {
+                        sqlparser::ast::Expr::Identifier(ident) => ident.value.clone(),
+                        _ => format!("col_{}", i),
+                    };
+                    let deduced_type =
+                        evaluate_expr_type(expr, &cte_scope, all_tables).unwrap_or(Type {
+                            base_type: BaseType::Unknowns,
+                            nullable: true,
+                            contains_placeholder: false,
+                        });
+                    cols.push(ColumnInfo {
+                        name: col_name,
+                        data_type: deduced_type,
+                        check_constraint: None,
+                    });
+                }
+            }
         }
         return cols;
     }
