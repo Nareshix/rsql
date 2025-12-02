@@ -32,7 +32,13 @@ pub fn get_type_of_binding_parameters(
 
         Statement::Delete(delete_node) => {
             if let Some(expr) = &delete_node.selection {
-                traverse_expr(expr, &table_names, all_tables, &mut results, bool_hint.clone())?;
+                traverse_expr(
+                    expr,
+                    &table_names,
+                    all_tables,
+                    &mut results,
+                    bool_hint.clone(),
+                )?;
             }
         }
 
@@ -71,7 +77,13 @@ pub fn get_type_of_binding_parameters(
 
             // WHERE Clause
             if let Some(expr) = selection {
-                traverse_expr(expr, &table_names, all_tables, &mut results, bool_hint.clone())?;
+                traverse_expr(
+                    expr,
+                    &table_names,
+                    all_tables,
+                    &mut results,
+                    bool_hint.clone(),
+                )?;
             }
         }
 
@@ -190,7 +202,13 @@ pub fn get_type_of_binding_parameters(
 
                 // 2. Traverse Selection: DO UPDATE ... WHERE ?
                 if let Some(selection) = &do_update.selection {
-                    traverse_expr(selection, &table_names, all_tables, &mut results, bool_hint.clone())?;
+                    traverse_expr(
+                        selection,
+                        &table_names,
+                        all_tables,
+                        &mut results,
+                        bool_hint.clone(),
+                    )?;
                 }
             }
         }
@@ -890,6 +908,12 @@ fn traverse_set_expr(
     all_tables: &mut HashMap<String, Vec<ColumnInfo>>,
     results: &mut Vec<Type>,
 ) -> Result<(), String> {
+    let bool_hint = Some(Type {
+        base_type: BaseType::Bool,
+        nullable: false,
+        contains_placeholder: false,
+    });
+
     match set_expr {
         sqlparser::ast::SetExpr::Select(select) => {
             let mut local_scope_tables = Vec::new();
@@ -963,16 +987,10 @@ fn traverse_set_expr(
                     };
 
                     if let Some(sqlparser::ast::JoinConstraint::On(expr)) = constraint {
-                        traverse_expr(expr, &local_scope_tables, all_tables, results, None)?;
+                        traverse_expr(expr, &local_scope_tables, all_tables, results, bool_hint.clone())?;
                     }
                 }
             }
-
-            let bool_hint = Some(Type {
-                base_type: BaseType::Bool,
-                nullable: false,
-                contains_placeholder: false,
-            });
 
             // 3. Process WHERE (Aliases NOT visible here)
             if let Some(selection) = &select.selection {
@@ -994,7 +1012,13 @@ fn traverse_set_expr(
 
             // 5. Process HAVING (Aliases ARE visible here)
             if let Some(having) = &select.having {
-                traverse_expr(having, &local_scope_tables, all_tables, results, bool_hint.clone())?;
+                traverse_expr(
+                    having,
+                    &local_scope_tables,
+                    all_tables,
+                    results,
+                    bool_hint.clone(),
+                )?;
             }
         }
 
