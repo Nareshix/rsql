@@ -195,6 +195,11 @@ fn traverse_expr(
             }
             Ok(())
         }
+        Expr::UnaryOp { expr, .. } => {
+            traverse_expr(expr, table_names, all_tables, results, parent_hint)?;
+            Ok(())
+        }
+
         Expr::BinaryOp { left, right, op } => {
             // evaluates types of children purely to get context for the OTHER child
             let left_type = evaluate_expr_type(left, table_names, all_tables)?;
@@ -653,7 +658,6 @@ fn infer_cte_columns(
     }
     vec![]
 }
-
 
 #[allow(unused)]
 fn traverse_set_expr(
