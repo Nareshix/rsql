@@ -193,12 +193,7 @@ pub fn get_type_of_binding_parameters(
                         )?;
                     }
                     _ => {
-                        traverse_query(
-                            source_query,
-                            &table_names,
-                            all_tables,
-                            &mut results,
-                        )?;
+                        traverse_query(source_query, &table_names, all_tables, &mut results)?;
                     }
                 }
             }
@@ -278,7 +273,12 @@ fn traverse_expr(
                 let t = parent_hint
                     .ok_or("Could not infer type for placeholder (ambiguous context)")?;
                 if t.base_type == BaseType::PlaceHolder || t.base_type == BaseType::Unknowns {
-                    return Err("Ambiguous context: Unable to infer a concrete type. Try casting one of the operands.".to_string());
+                    let line = val.span.start.line;
+                    let col = val.span.start.column;
+                    return Err(format!(
+                        "Could not infer type for placeholder at Line {}, Column {}. Try casting.",
+                        line, col
+                    ));
                 }
 
                 results.push(t);
@@ -787,7 +787,6 @@ fn traverse_query(
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
     results: &mut Vec<Type>,
 ) -> Result<(), String> {
-
     let mut local_scope = all_tables.clone();
 
     if let Some(with) = &query.with {
@@ -963,19 +962,30 @@ fn traverse_set_expr(
             for item in &select.projection {
                 match item {
                     sqlparser::ast::SelectItem::UnnamedExpr(expr) => {
-                        traverse_expr(expr, &local_scope_tables, &current_select_scope, results, None)?;
+                        traverse_expr(
+                            expr,
+                            &local_scope_tables,
+                            &current_select_scope,
+                            results,
+                            None,
+                        )?;
                     }
                     sqlparser::ast::SelectItem::ExprWithAlias { expr, alias } => {
-                        traverse_expr(expr, &local_scope_tables, &current_select_scope, results, None)?;
+                        traverse_expr(
+                            expr,
+                            &local_scope_tables,
+                            &current_select_scope,
+                            results,
+                            None,
+                        )?;
 
                         let derived_type =
-                            evaluate_expr_type(expr, &local_scope_tables, &current_select_scope).unwrap_or(
-                                Type {
+                            evaluate_expr_type(expr, &local_scope_tables, &current_select_scope)
+                                .unwrap_or(Type {
                                     base_type: BaseType::Unknowns,
                                     nullable: true,
                                     contains_placeholder: false,
-                                },
-                            );
+                                });
 
                         projected_aliases.push(ColumnInfo {
                             name: alias.value.clone(),
@@ -1031,7 +1041,7 @@ fn traverse_set_expr(
             }
 
             if let Some(having) = &select.having {
-               traverse_expr(
+                traverse_expr(
                     having,
                     &local_scope_tables,
                     &current_select_scope,
