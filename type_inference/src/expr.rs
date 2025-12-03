@@ -385,7 +385,14 @@ pub fn evaluate_expr_type(
                     contains_placeholder: propagates_placeholder,
                 }),
 
-                // TODO bitwise operation in BinaryOperator
+                BinaryOperator::BitwiseOr
+                | BinaryOperator::BitwiseAnd
+                | BinaryOperator::BitwiseXor => Ok(Type {
+                    base_type: BaseType::Integer,
+                    nullable: true,
+                    contains_placeholder: false,
+                }),
+
                 // TODO REGEXP. it is sqlite specific
                 _ => Err(format!("invalid {expr}")),
             }
