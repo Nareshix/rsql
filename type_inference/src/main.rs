@@ -52,7 +52,7 @@ fn main() {
     // Test cases for SQL parameter binding detection
 
     let sql = "SELECT 1 FROM users AS u WHERE u.wow >= ?";
-    let x = get_type_of_binding_parameters(sql, &all_tables);
+    let x = get_type_of_binding_parameters(sql, &mut all_tables);
     println!(" {:?}", x);
 
     // let sql = "SELECT * FROM users WHERE id = ?";
