@@ -186,7 +186,6 @@ pub fn evaluate_expr_type(
             let mut contains_placeholder = lhs.contains_placeholder;
             let mut nullable = lhs.nullable;
 
-            // 2. Iterate through every item in the list
             for item in list {
                 let item_type = evaluate_expr_type(item, table_names_from_select, all_tables)?;
 
@@ -257,7 +256,7 @@ pub fn evaluate_expr_type(
         Expr::InSubquery { expr, .. } => {
             let _lhs = evaluate_expr_type(expr, table_names_from_select, all_tables)?;
 
-            let lhs_contains_placeholder = _lhs.contains_placeholder; // simplistic propagation
+            let lhs_contains_placeholder = _lhs.contains_placeholder;
             let lhs_nullable = _lhs.nullable;
 
             Ok(Type {
@@ -283,7 +282,6 @@ pub fn evaluate_expr_type(
                 | BinaryOperator::And
                 | BinaryOperator::Or => {
                     let are_comparable = match (&left_type.base_type, &right_type.base_type) {
-                        // 1. FAIL if both are placeholders
                         (BaseType::PlaceHolder, BaseType::PlaceHolder) => {
                             return Err(format!(
                                 "Unable to infer type '? {} ?'. Try Casting either one, or both of them",
@@ -293,7 +291,6 @@ pub fn evaluate_expr_type(
 
                         (BaseType::PlaceHolder, _) | (_, BaseType::PlaceHolder) => true,
 
-                        // 3. Handle specific types
                         (BaseType::Null, _) | (_, BaseType::Null) => true,
                         (BaseType::Integer, BaseType::Integer) => true,
                         (BaseType::Real, BaseType::Real) => true,
