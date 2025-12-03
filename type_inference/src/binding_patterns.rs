@@ -11,11 +11,10 @@ use std::collections::HashMap;
 #[allow(unused)]
 pub fn get_type_of_binding_parameters(
     sql: &str,
-    all_tables: &mut HashMap<String, Vec<ColumnInfo>>,
+    all_tables: &HashMap<String, Vec<ColumnInfo>>,
 ) -> Result<Vec<Type>, String> {
     let statement = &Parser::parse_sql(&SQLiteDialect {}, sql).map_err(|e| e.to_string())?[0];
 
-    let mut working_tables = all_tables.clone();
     let table_names = get_table_names(sql);
     let mut results = Vec::new();
 
@@ -27,7 +26,7 @@ pub fn get_type_of_binding_parameters(
 
     match statement {
         Statement::Query(q) => {
-            traverse_query(q, &table_names, &mut working_tables, &mut results)?;
+            traverse_query(q, &table_names, all_tables, &mut results)?;
         }
 
         Statement::Delete(delete_node) => {
@@ -53,7 +52,6 @@ pub fn get_type_of_binding_parameters(
             assignments,
             selection,
             returning,
-
             table,
             ..
         } => {
@@ -61,7 +59,6 @@ pub fn get_type_of_binding_parameters(
 
             for assignment in assignments {
                 match &assignment.target {
-                    // SET col = val
                     sqlparser::ast::AssignmentTarget::ColumnName(obj_name) => {
                         let col_name = obj_name.0.last().map(|p| p.to_string()).unwrap_or_default();
 
@@ -79,8 +76,6 @@ pub fn get_type_of_binding_parameters(
                             hint,
                         )?;
                     }
-
-                    // SET (a, b) = (1, 2)
                     sqlparser::ast::AssignmentTarget::Tuple(col_names) => {
                         if let sqlparser::ast::Expr::Tuple(values) = &assignment.value {
                             for (i, name_obj) in col_names.iter().enumerate() {
@@ -109,8 +104,6 @@ pub fn get_type_of_binding_parameters(
                                 }
                             }
                         } else {
-                            // The value might be a subquery: SET (a,b) = (SELECT 1, 2)
-                            // Traverse blindly with no hint.
                             traverse_expr(
                                 &assignment.value,
                                 &table_names,
@@ -122,7 +115,6 @@ pub fn get_type_of_binding_parameters(
                     }
                 }
             }
-            // WHERE Clause
             if let Some(expr) = selection {
                 traverse_expr(
                     expr,
@@ -143,13 +135,11 @@ pub fn get_type_of_binding_parameters(
 
             let expected_types = if let Some(table_cols) = all_tables.get(&t_name) {
                 if insert_node.columns.is_empty() {
-                    // Implicit: Use all columns in definition order
                     table_cols
                         .iter()
                         .map(|c| Some(c.data_type.clone()))
                         .collect()
                 } else {
-                    // Explicit: Match provided column identifiers
                     insert_node
                         .columns
                         .iter()
@@ -167,7 +157,6 @@ pub fn get_type_of_binding_parameters(
 
             if let Some(source_query) = &insert_node.source {
                 match &*source_query.body {
-                    // Case A: INSERT ... VALUES (...)
                     SetExpr::Values(values) => {
                         for row in &values.rows {
                             for (idx, expr) in row.iter().enumerate() {
@@ -176,16 +165,12 @@ pub fn get_type_of_binding_parameters(
                             }
                         }
                     }
-                    // Case B: INSERT ... SELECT ...
                     SetExpr::Select(select) => {
-                        // We need to map the expected types to the projection columns of the SELECT
                         for (idx, item) in select.projection.iter().enumerate() {
                             let hint = expected_types.get(idx).cloned().flatten();
-
                             match item {
                                 sqlparser::ast::SelectItem::UnnamedExpr(expr)
                                 | sqlparser::ast::SelectItem::ExprWithAlias { expr, .. } => {
-                                    // Use the hint from the target table!
                                     traverse_expr(
                                         expr,
                                         &table_names,
@@ -197,9 +182,6 @@ pub fn get_type_of_binding_parameters(
                                 _ => {}
                             }
                         }
-
-                        // traverse the rest of the query (WHERE clauses, etc.)
-                        // passing None as hint for the rest
                         if let Some(selection) = &select.selection {
                             traverse_expr(selection, &table_names, all_tables, &mut results, None)?;
                         }
@@ -210,13 +192,11 @@ pub fn get_type_of_binding_parameters(
                             &mut results,
                         )?;
                     }
-
                     _ => {
-                        // For other cases (e.g. UNION), just traverse blindly
                         traverse_query(
                             source_query,
                             &table_names,
-                            &mut working_tables,
+                            all_tables,
                             &mut results,
                         )?;
                     }
@@ -226,17 +206,13 @@ pub fn get_type_of_binding_parameters(
                 && let sqlparser::ast::OnInsert::OnConflict(on_conflict) = on_insert
                 && let sqlparser::ast::OnConflictAction::DoUpdate(do_update) = &on_conflict.action
             {
-                // 1. Traverse Assignments: DO UPDATE SET name = ?
                 for assignment in &do_update.assignments {
-                    // Reuse the same logic from Statement::Update to find column name
                     let col_name = match &assignment.target {
                         sqlparser::ast::AssignmentTarget::ColumnName(obj_name) => {
                             obj_name.0.last().map(|p| p.to_string()).unwrap_or_default()
                         }
                         _ => String::new(),
                     };
-
-                    // Look up hints using the table name (t_name) we found earlier
                     let mut hint = None;
                     if !col_name.is_empty()
                         && let Some(cols) = all_tables.get(&t_name)
@@ -244,7 +220,6 @@ pub fn get_type_of_binding_parameters(
                     {
                         hint = Some(col_info.data_type.clone());
                     }
-
                     traverse_expr(
                         &assignment.value,
                         &table_names,
@@ -253,8 +228,6 @@ pub fn get_type_of_binding_parameters(
                         hint,
                     )?;
                 }
-
-                // 2. Traverse Selection: DO UPDATE ... WHERE ?
                 if let Some(selection) = &do_update.selection {
                     traverse_expr(
                         selection,
@@ -276,12 +249,13 @@ pub fn get_type_of_binding_parameters(
     }
     Ok(results)
 }
+
 fn traverse_expr(
     expr: &Expr,
     table_names: &Vec<String>,
-    all_tables: &mut HashMap<String, Vec<ColumnInfo>>,
+    all_tables: &HashMap<String, Vec<ColumnInfo>>,
     results: &mut Vec<Type>,
-    parent_hint: Option<Type>, // The type inferred from the parent context
+    parent_hint: Option<Type>,
 ) -> Result<(), String> {
     match expr {
         Expr::Subquery(query) => {
@@ -358,9 +332,7 @@ fn traverse_expr(
             }
             Ok(())
         }
-        // In traverse_expr match block:
         Expr::IsNull(expr) | Expr::IsNotNull(expr) => {
-            // We cannot infer type from "IS NULL", but we must verify the child doesn't contain a raw placeholder
             traverse_expr(expr, table_names, all_tables, results, None)?;
             Ok(())
         }
@@ -384,15 +356,11 @@ fn traverse_expr(
         }
         Expr::UnaryOp { op, expr } => {
             let child_hint = match op {
-                // "NOT ?" -> ? must be a Boolean
                 sqlparser::ast::UnaryOperator::Not => Some(Type {
                     base_type: BaseType::Bool,
                     nullable: true,
                     contains_placeholder: false,
                 }),
-
-                // "+ ?" or "- ?" -> We cannot determine if it is Integer or Real
-                // without outside context, so we just pass the parent_hint through.
                 _ => parent_hint,
             };
 
@@ -400,7 +368,6 @@ fn traverse_expr(
             Ok(())
         }
         Expr::BinaryOp { left, right, op } => {
-            // evaluates types of children purely to get context for the OTHER child
             let left_type = evaluate_expr_type(left, table_names, all_tables)?;
             let right_type = evaluate_expr_type(right, table_names, all_tables)?;
 
@@ -458,14 +425,12 @@ fn traverse_expr(
         Expr::Nested(inner) => traverse_expr(inner, table_names, all_tables, results, parent_hint),
 
         Expr::InList { expr, list, .. } => {
-            // First, check the Left Side (e.g. "id IN ...")
             let mut common_type = evaluate_expr_type(expr, table_names, all_tables)
                 .ok()
                 .filter(|t| {
                     t.base_type != BaseType::PlaceHolder && t.base_type != BaseType::Unknowns
                 });
 
-            // If Left Side gave nothing (it was '?'), check the List (e.g. "... IN (1, 2)")
             if common_type.is_none() {
                 for item in list {
                     if let Ok(t) = evaluate_expr_type(item, table_names, all_tables)
@@ -478,11 +443,8 @@ fn traverse_expr(
                 }
             }
 
-            // 2. Traverse the Left Side with the Context
-            // (If common_type is None here, this will trigger the "Ambiguous" error on the LHS ?)
             traverse_expr(expr, table_names, all_tables, results, common_type.clone())?;
 
-            // 3. Traverse the List with the Context
             for item in list {
                 traverse_expr(item, table_names, all_tables, results, common_type.clone())?;
             }
@@ -496,7 +458,6 @@ fn traverse_expr(
             let l_type = evaluate_expr_type(low, table_names, all_tables);
             let h_type = evaluate_expr_type(high, table_names, all_tables);
 
-            // Determine context from the first available non-placeholder type
             let context = if let Ok(t) = &e_type
                 && t.base_type != BaseType::PlaceHolder
             {
@@ -510,10 +471,9 @@ fn traverse_expr(
             {
                 Some(t.clone())
             } else {
-                None // If all 3 are placeholders, we can't infer anything.
+                None
             };
 
-            // Recursion strictly Left-to-Right
             traverse_expr(expr, table_names, all_tables, results, context.clone())?;
             traverse_expr(low, table_names, all_tables, results, context.clone())?;
             traverse_expr(high, table_names, all_tables, results, context)?;
@@ -579,12 +539,8 @@ fn traverse_expr(
             else_result,
             ..
         } => {
-            // --- STEP 1: Determine the Return Type Hint ---
-            // We look for the first non-placeholder type in THEN or ELSE clauses.
-            // If found, that becomes the hint for all other result branches.
             let mut result_hint = parent_hint.clone();
 
-            // A. Check 'ELSE' first (often simplest)
             if result_hint.is_none()
                 && let Some(else_expr) = else_result
                 && let Ok(t) = evaluate_expr_type(else_expr, table_names, all_tables)
@@ -594,7 +550,6 @@ fn traverse_expr(
                 result_hint = Some(t);
             }
 
-            // B. Check 'THEN' clauses if we still don't know
             if result_hint.is_none() {
                 for cond in conditions {
                     if let Ok(t) = evaluate_expr_type(&cond.result, table_names, all_tables)
@@ -607,20 +562,14 @@ fn traverse_expr(
                 }
             }
 
-            // --- STEP 2: Determine the Operand/Condition Hint ---
             let operand_hint = if let Some(op_expr) = operand {
-                // Evaluate the operand (e.g., CASE x WHEN 1...) to hint the WHEN clauses
                 traverse_expr(op_expr, table_names, all_tables, results, None)?;
                 evaluate_expr_type(op_expr, table_names, all_tables).ok()
             } else {
                 None
             };
 
-            // --- STEP 3: Traverse ---
             for cond in conditions {
-                // 1. Condition (WHEN ...)
-                // If it's "CASE x WHEN ...", hint matches x.
-                // If it's "CASE WHEN ...", hint is Boolean.
                 let when_hint = operand_hint.clone().or(Some(Type {
                     base_type: BaseType::Bool,
                     nullable: false,
@@ -629,7 +578,6 @@ fn traverse_expr(
 
                 traverse_expr(&cond.condition, table_names, all_tables, results, when_hint)?;
 
-                // 2. Result (THEN ...) -> Uses the result_hint we found in Step 1
                 traverse_expr(
                     &cond.result,
                     table_names,
@@ -639,7 +587,6 @@ fn traverse_expr(
                 )?;
             }
 
-            // 3. Else (ELSE ...) -> Uses the result_hint
             if let Some(else_expr) = else_result {
                 traverse_expr(else_expr, table_names, all_tables, results, result_hint)?;
             }
@@ -671,7 +618,6 @@ fn traverse_expr(
                     | "DATETIME"
             );
 
-            // Bucket 2: Functions that expect NUMERIC inputs (Real or Int)
             let expects_number = matches!(
                 name.as_str(),
                 "ABS"
@@ -723,7 +669,6 @@ fn traverse_expr(
                     contains_placeholder: false,
                 })
             } else if is_polymorphic {
-                // TODO check if this actually works
                 let mut found_sibling = None;
                 if let FunctionArguments::List(args_list) = &func.args {
                     for arg in &args_list.args {
@@ -736,10 +681,8 @@ fn traverse_expr(
                         }
                     }
                 }
-                // Use sibling type if found, otherwise fallback to what the parent expected of this function
                 found_sibling.or(parent_hint)
             } else {
-                // Unknown function or functions like COUNT(*) that don't care
                 None
             };
 
@@ -838,27 +781,27 @@ fn traverse_expr(
     }
 }
 
-// Add these functions at the bottom of the file
 fn traverse_query(
     query: &sqlparser::ast::Query,
     table_names: &Vec<String>,
-    all_tables: &mut HashMap<String, Vec<ColumnInfo>>,
+    all_tables: &HashMap<String, Vec<ColumnInfo>>,
     results: &mut Vec<Type>,
 ) -> Result<(), String> {
-    // 1. Handle CTEs (WITH clause)
+
+    let mut local_scope = all_tables.clone();
+
     if let Some(with) = &query.with {
         for cte in &with.cte_tables {
-            let inferred_columns = infer_cte_columns(cte, all_tables);
+            let inferred_columns = infer_cte_columns(cte, &local_scope);
             let cte_name = cte.alias.name.value.clone();
-            all_tables.insert(cte_name, inferred_columns);
-            traverse_query(&cte.query, table_names, all_tables, results)?;
+            local_scope.insert(cte_name, inferred_columns);
+
+            traverse_query(&cte.query, table_names, &local_scope, results)?;
         }
     }
 
-    // 2. Handle Body
-    traverse_set_expr(&query.body, table_names, all_tables, results)?;
+    traverse_set_expr(&query.body, table_names, &local_scope, results)?;
 
-    // 3. Handle LIMIT / OFFSET
     if let Some(limit_clause) = &query.limit_clause {
         let int_hint = Some(Type {
             base_type: BaseType::Integer,
@@ -871,7 +814,7 @@ fn traverse_query(
                 traverse_expr(
                     limit_expr,
                     table_names,
-                    all_tables,
+                    all_tables, // Limit doesn't need CTEs usually, but all_tables is safe
                     results,
                     int_hint.clone(),
                 )?;
@@ -890,6 +833,7 @@ fn traverse_query(
 
     Ok(())
 }
+
 fn infer_cte_columns(
     cte: &sqlparser::ast::Cte,
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
@@ -900,6 +844,7 @@ fn infer_cte_columns(
     };
 
     if let sqlparser::ast::SetExpr::Select(select) = anchor_body {
+        // Clone for CTE alias resolution
         let mut local_tables = all_tables.clone();
         let mut local_scope_names = Vec::new();
 
@@ -970,11 +915,12 @@ fn infer_cte_columns(
     }
     vec![]
 }
+
 #[allow(unused)]
 fn traverse_set_expr(
     set_expr: &sqlparser::ast::SetExpr,
     outer_scope: &Vec<String>,
-    all_tables: &mut HashMap<String, Vec<ColumnInfo>>,
+    all_tables: &HashMap<String, Vec<ColumnInfo>>,
     results: &mut Vec<Type>,
 ) -> Result<(), String> {
     let bool_hint = Some(Type {
@@ -987,6 +933,8 @@ fn traverse_set_expr(
         sqlparser::ast::SetExpr::Select(select) => {
             let mut local_scope_tables = Vec::new();
 
+            let mut current_select_scope = all_tables.clone();
+
             // Helper closure to register aliases
             let mut register_table = |relation: &sqlparser::ast::TableFactor| {
                 if let sqlparser::ast::TableFactor::Table { name, alias, .. } = relation {
@@ -994,7 +942,7 @@ fn traverse_set_expr(
                     let effective_name = if let Some(a) = alias {
                         let alias_name = a.name.value.clone();
                         if let Some(cols) = all_tables.get(&real_name).cloned() {
-                            all_tables.insert(alias_name.clone(), cols);
+                            current_select_scope.insert(alias_name.clone(), cols);
                         }
                         alias_name
                     } else {
@@ -1011,18 +959,17 @@ fn traverse_set_expr(
                 }
             }
 
-            // 1. Collect Projections (but do NOT register them yet)
             let mut projected_aliases = Vec::new();
             for item in &select.projection {
                 match item {
                     sqlparser::ast::SelectItem::UnnamedExpr(expr) => {
-                        traverse_expr(expr, &local_scope_tables, all_tables, results, None)?;
+                        traverse_expr(expr, &local_scope_tables, &current_select_scope, results, None)?;
                     }
                     sqlparser::ast::SelectItem::ExprWithAlias { expr, alias } => {
-                        traverse_expr(expr, &local_scope_tables, all_tables, results, None)?;
+                        traverse_expr(expr, &local_scope_tables, &current_select_scope, results, None)?;
 
                         let derived_type =
-                            evaluate_expr_type(expr, &local_scope_tables, all_tables).unwrap_or(
+                            evaluate_expr_type(expr, &local_scope_tables, &current_select_scope).unwrap_or(
                                 Type {
                                     base_type: BaseType::Unknowns,
                                     nullable: true,
@@ -1040,7 +987,6 @@ fn traverse_set_expr(
                 }
             }
 
-            // 2. Process Joins / ON clauses (Aliases not visible here)
             for table_with_joins in &select.from {
                 for join in &table_with_joins.joins {
                     let constraint = match &join.join_operator {
@@ -1059,7 +1005,7 @@ fn traverse_set_expr(
                         traverse_expr(
                             expr,
                             &local_scope_tables,
-                            all_tables,
+                            &current_select_scope,
                             results,
                             bool_hint.clone(),
                         )?;
@@ -1067,12 +1013,11 @@ fn traverse_set_expr(
                 }
             }
 
-            // 3. Process WHERE (Aliases NOT visible here)
             if let Some(selection) = &select.selection {
                 traverse_expr(
                     selection,
                     &local_scope_tables,
-                    all_tables,
+                    &current_select_scope,
                     results,
                     bool_hint.clone(),
                 )?;
@@ -1081,16 +1026,15 @@ fn traverse_set_expr(
             // 4. NOW Inject Aliases (Visible for HAVING, GROUP BY, etc.)
             if !projected_aliases.is_empty() {
                 let virtual_alias_table = "$_current_scope_aliases_$".to_string();
-                all_tables.insert(virtual_alias_table.clone(), projected_aliases);
+                current_select_scope.insert(virtual_alias_table.clone(), projected_aliases);
                 local_scope_tables.push(virtual_alias_table);
             }
 
-            // 5. Process HAVING (Aliases ARE visible here)
             if let Some(having) = &select.having {
-                traverse_expr(
+               traverse_expr(
                     having,
                     &local_scope_tables,
-                    all_tables,
+                    &current_select_scope,
                     results,
                     bool_hint.clone(),
                 )?;
@@ -1121,7 +1065,7 @@ fn traverse_set_expr(
 fn traverse_returning(
     returning: &Option<Vec<sqlparser::ast::SelectItem>>,
     table_names: &Vec<String>,
-    all_tables: &mut HashMap<String, Vec<ColumnInfo>>,
+    all_tables: &HashMap<String, Vec<ColumnInfo>>,
     results: &mut Vec<Type>,
 ) -> Result<(), String> {
     if let Some(items) = returning {
