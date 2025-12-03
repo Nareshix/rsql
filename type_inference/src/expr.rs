@@ -5,7 +5,6 @@ use sqlparser::ast::{
 };
 
 use crate::table::ColumnInfo;
-// TODO, need to handle cases when it can be NULL
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BaseType {
     Integer,
@@ -20,14 +19,11 @@ pub enum BaseType {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Type {
     pub base_type: BaseType,
-    /// true if theres a chance of it being null, else false
     pub nullable: bool,
     pub contains_placeholder: bool,
 }
 
 /// https://docs.rs/sqlparser/latest/sqlparser/ast/enum.Expr.html, version 0.59.0
-///
-/// we will patern match all 63 (yep...). Some of them are not supported by sqlite so they will be skipped and commented.
 pub fn evaluate_expr_type(
     expr: &Expr,
     table_names_from_select: &Vec<String>,
