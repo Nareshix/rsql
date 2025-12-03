@@ -900,15 +900,30 @@ fn infer_cte_columns(
     };
 
     if let sqlparser::ast::SetExpr::Select(select) = anchor_body {
-        let mut cte_scope = Vec::new();
+        let mut local_tables = all_tables.clone();
+        let mut local_scope_names = Vec::new();
+
+        let mut register_table = |relation: &sqlparser::ast::TableFactor| {
+            if let sqlparser::ast::TableFactor::Table { name, alias, .. } = relation {
+                let real_name = name.to_string();
+
+                if let Some(cols) = all_tables.get(&real_name) {
+                    let effective_name = if let Some(a) = alias {
+                        let alias_name = a.name.value.clone();
+                        local_tables.insert(alias_name.clone(), cols.clone());
+                        alias_name
+                    } else {
+                        real_name
+                    };
+                    local_scope_names.push(effective_name);
+                }
+            }
+        };
+
         for table_with_joins in &select.from {
-            if let sqlparser::ast::TableFactor::Table { name, .. } = &table_with_joins.relation {
-                let n = if let Some(sqlparser::ast::ObjectNamePart::Identifier(i)) = name.0.last() {
-                    i.value.clone()
-                } else {
-                    name.to_string()
-                };
-                cte_scope.push(n);
+            register_table(&table_with_joins.relation);
+            for join in &table_with_joins.joins {
+                register_table(&join.relation);
             }
         }
 
@@ -922,6 +937,12 @@ fn infer_cte_columns(
                     sqlparser::ast::SelectItem::UnnamedExpr(sqlparser::ast::Expr::Identifier(
                         ident,
                     )) => ident.value.clone(),
+                    sqlparser::ast::SelectItem::UnnamedExpr(
+                        sqlparser::ast::Expr::CompoundIdentifier(idents),
+                    ) => idents
+                        .last()
+                        .map(|i| i.value.clone())
+                        .unwrap_or_else(|| format!("col_{}", i)),
                     _ => format!("col_{}", i),
                 }
             };
@@ -932,11 +953,12 @@ fn infer_cte_columns(
                 _ => continue,
             };
 
-            let deduced_type = evaluate_expr_type(expr, &cte_scope, all_tables).unwrap_or(Type {
-                base_type: BaseType::Unknowns,
-                nullable: true,
-                contains_placeholder: false,
-            });
+            let deduced_type = evaluate_expr_type(expr, &local_scope_names, &local_tables)
+                .unwrap_or(Type {
+                    base_type: BaseType::Unknowns,
+                    nullable: true,
+                    contains_placeholder: false,
+                });
 
             cols.push(ColumnInfo {
                 name: col_name,
