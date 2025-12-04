@@ -575,7 +575,7 @@ pub fn evaluate_expr_type(
                     contains_placeholder: false,
                 }),
 
-                "SUM" | "MIN" | "MAX" => Ok(Type {
+                "SUM" => Ok(Type {
                     base_type: input_type.base_type,
                     nullable: true,
                     contains_placeholder: false,
@@ -587,6 +587,31 @@ pub fn evaluate_expr_type(
                     nullable: false,
                     contains_placeholder: false,
                 }),
+
+
+                "MIN" | "MAX" => {
+                    let arg_count = if let FunctionArguments::List(list) = &func.args {
+                        list.args.len()
+                    } else {
+                        0
+                    };
+
+                    if arg_count > 1 {
+                        // Nullable only if one of the arguments is nullable
+                        Ok(Type {
+                            base_type: input_type.base_type,
+                            nullable: any_arg_nullable,
+                            contains_placeholder: false,
+                        })
+                    } else {
+                        // Always nullable (returns NULL if 0 rows match)
+                        Ok(Type {
+                            base_type: input_type.base_type,
+                            nullable: true,
+                            contains_placeholder: false,
+                        })
+                    }
+                }
 
                 "RANDOM" => Ok(Type {
                     base_type: BaseType::Integer,
