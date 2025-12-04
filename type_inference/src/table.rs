@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::ops::ControlFlow;
 
-use sqlparser::ast::{ColumnOption, CreateTable, Statement, visit_relations};
+use sqlparser::ast::{ColumnOption, CreateTable, Expr, Statement, visit_relations};
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 
@@ -14,16 +14,37 @@ pub struct ColumnInfo {
     pub check_constraint: Option<String>,
 }
 
-fn convert_sqlite_to_rust_type(sql: String, nullable: bool) -> Type {
+/// Bool type derived from CHECK constraint
+/// 1. CHECK (col IN (0, 1))
+/// 2. CHECK (col = 0 OR col = 1)
+fn is_boolean_constraint(expr: &Expr) -> bool {
+    match expr {
+        // CHECK (col IN (0, 1))
+        Expr::InList { list, .. } => {
+            if list.len() != 2 {
+                return false;
+            }
+            let has_zero = list.iter().any(|e| e.to_string() == "0");
+            let has_one = list.iter().any(|e| e.to_string() == "1");
+            has_zero && has_one
+        }
+        // CHECK (col = 0 OR col = 1)
+        _ => {
+            let sql = expr.to_string();
+            sql.contains("= 0") && sql.contains("= 1") && sql.contains("OR")
+        }
+    }
+}
+
+fn convert_sqlite_to_rust_type(sql: String, nullable: bool, is_bool_context: bool) -> Type {
     let sql_upper = sql.to_uppercase();
 
-    if sql_upper.contains("TEXT") {
+    if is_bool_context || sql_upper.contains("BOOL") {
         Type {
-            base_type: BaseType::Text,
+            base_type: BaseType::Bool,
             nullable,
             contains_placeholder: false,
         }
-        // also handles INTEGER
     } else if sql_upper.contains("INT") {
         Type {
             base_type: BaseType::Integer,
@@ -39,6 +60,12 @@ fn convert_sqlite_to_rust_type(sql: String, nullable: bool) -> Type {
             nullable,
             contains_placeholder: false,
         }
+    } else if sql_upper.contains("TEXT"){
+        Type {
+            base_type: BaseType::Text,
+            nullable,
+            contains_placeholder: false,
+        }
     } else {
         Type {
             base_type: BaseType::Null,
@@ -46,7 +73,6 @@ fn convert_sqlite_to_rust_type(sql: String, nullable: bool) -> Type {
             contains_placeholder: false,
         }
     }
-    //TODO: BOOL
 }
 
 pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
@@ -60,18 +86,22 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
             let table_columns = columns
                 .iter()
                 .map(|col| {
-                    let mut check_expr = None;
+                    let mut check_expr_str = None;
                     let mut nullable = true;
+                    let mut is_detected_boolean = false;
 
                     for option_def in &col.options {
                         match &option_def.option {
                             ColumnOption::Check(expr) => {
-                                check_expr = Some(expr.to_string());
+                                check_expr_str = Some(expr.to_string());
+
+                                if is_boolean_constraint(expr) {
+                                    is_detected_boolean = true;
+                                }
                             }
                             ColumnOption::NotNull => {
                                 nullable = false;
                             }
-                            // Unique and primary key are same in this context
                             ColumnOption::Unique {
                                 is_primary: true, ..
                             } => {
@@ -81,13 +111,16 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
                         }
                     }
 
-                    let data_type =
-                        convert_sqlite_to_rust_type(col.data_type.to_string(), nullable);
+                    let data_type = convert_sqlite_to_rust_type(
+                        col.data_type.to_string(),
+                        nullable,
+                        is_detected_boolean
+                    );
 
                     ColumnInfo {
                         name: col.name.value.clone(),
                         data_type,
-                        check_constraint: check_expr,
+                        check_constraint: check_expr_str,
                     }
                 })
                 .collect();
