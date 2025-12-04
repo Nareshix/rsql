@@ -532,19 +532,19 @@ pub fn evaluate_expr_type(
                 // https://sqlite.org/lang_corefunc.html TODO: not all of it is implemented
                 "COUNT" => Ok(Type {
                     base_type: BaseType::Integer,
-                    nullable: false, // Correct: Count never returns NULL
+                    nullable: false,
                     contains_placeholder: false,
                 }),
 
                 "AVG" => Ok(Type {
                     base_type: BaseType::Real,
-                    nullable: true, // Correct: AVG([]) is NULL
+                    nullable: true,
                     contains_placeholder: false,
                 }),
 
                 "SUM" | "MIN" | "MAX" => Ok(Type {
                     base_type: input_type.base_type,
-                    nullable: true, // Correct: Aggregates on empty sets are NULL
+                    nullable: true,
                     contains_placeholder: false,
                 }),
 
@@ -596,6 +596,13 @@ pub fn evaluate_expr_type(
                 "COALESCE" | "IFNULL" => Ok(Type {
                     base_type: input_type.base_type,
                     nullable: all_args_nullable,
+                    contains_placeholder: false,
+                }),
+                
+                // Always nullable (returns NULL if args match)
+                "NULLIF" => Ok(Type {
+                    base_type: input_type.base_type,
+                    nullable: true,
                     contains_placeholder: false,
                 }),
 
