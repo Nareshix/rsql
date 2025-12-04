@@ -7,65 +7,57 @@ use sqlparser::parser::Parser;
 
 use crate::expr::{BaseType, Type};
 
-// use crate::expr::Type;
-
-// 1. The Structs
 #[derive(Debug, Clone, PartialEq)]
-#[allow(unused)]
 pub struct ColumnInfo {
     pub name: String,
     pub data_type: Type,
     pub check_constraint: Option<String>,
 }
 
-#[derive(Debug)]
-#[allow(unused)]
-struct Table {
-    pub table_name: String,
-    pub columns: Vec<ColumnInfo>,
-}
-
-#[allow(unused)]
-#[allow(unused)]
-// 1. Add `nullable: bool` argument here
 fn convert_sqlite_to_rust_type(sql: String, nullable: bool) -> Type {
-    if sql == "TEXT" {
+    let sql_upper = sql.to_uppercase();
+
+    if sql_upper.contains("TEXT") {
         Type {
             base_type: BaseType::Text,
             nullable,
-            contains_placeholder: false
+            contains_placeholder: false,
         }
-    } else if sql == "INTEGER" {
+        // also handles INTEGER
+    } else if sql_upper.contains("INT") {
         Type {
             base_type: BaseType::Integer,
             nullable,
-            contains_placeholder: false
+            contains_placeholder: false,
         }
-    } else if sql == "REAL" {
+    } else if sql_upper.contains("REAL")
+        || sql_upper.contains("FLOAT")
+        || sql_upper.contains("DOUBLE")
+    {
         Type {
             base_type: BaseType::Real,
-    nullable,
-    contains_placeholder: false
+            nullable,
+            contains_placeholder: false,
         }
     } else {
         Type {
             base_type: BaseType::Null,
             nullable,
-            contains_placeholder: false
+            contains_placeholder: false,
         }
     }
-    // TODO bool
+    //TODO: BOOL
 }
-#[allow(unused)]
-/// parses the sql and creates an ast for table. then it  is inserted into the Hashmap.
+
 pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
     let dialect = SQLiteDialect {};
     let ast = Parser::parse_sql(&dialect, sql).unwrap();
 
-    let schema = if let Statement::CreateTable(CreateTable { name, columns, .. }) = &ast[0] {
-        Table {
-            table_name: name.to_string(),
-            columns: columns
+    for statement in ast {
+        if let Statement::CreateTable(CreateTable { name, columns, .. }) = statement {
+            let table_name = name.to_string();
+
+            let table_columns = columns
                 .iter()
                 .map(|col| {
                     let mut check_expr = None;
@@ -79,7 +71,13 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
                             ColumnOption::NotNull => {
                                 nullable = false;
                             }
-                            _ => {} // TODO
+                            // Unique and primary key are same in this context
+                            ColumnOption::Unique {
+                                is_primary: true, ..
+                            } => {
+                                // TODO
+                            }
+                            _ => {}
                         }
                     }
 
@@ -92,12 +90,11 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
                         check_constraint: check_expr,
                     }
                 })
-                .collect(),
+                .collect();
+
+            tables.insert(table_name, table_columns);
         }
-    } else {
-        panic!("Ensure that it is CREATE table"); //TODO
-    };
-    tables.insert(schema.table_name, schema.columns);
+    }
 }
 
 #[allow(unused)]
@@ -106,10 +103,7 @@ pub fn get_table_names(sql: &str) -> Vec<String> {
     let mut visited = vec![];
     let _ = visit_relations(&statements, |expr| {
         visited.push(expr.to_string());
-
         ControlFlow::<()>::Continue(())
     });
-
     visited
-
 }
