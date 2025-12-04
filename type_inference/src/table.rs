@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::ops::ControlFlow;
 
-use sqlparser::ast::{ColumnOption, CreateTable, Expr, Statement, visit_relations};
+use sqlparser::ast::{BinaryOperator, ColumnOption, CreateTable, Expr, Statement, visit_relations};
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 
@@ -28,11 +28,34 @@ fn is_boolean_constraint(expr: &Expr) -> bool {
             let has_one = list.iter().any(|e| e.to_string() == "1");
             has_zero && has_one
         }
-        // CHECK (col = 0 OR col = 1)
-        _ => {
-            let sql = expr.to_string();
-            sql.contains("= 0") && sql.contains("= 1") && sql.contains("OR")
+        Expr::BinaryOp {
+            left,
+            op: BinaryOperator::Or,
+            right,
+        } => {
+
+            let is_eq_check = |op_expr: &Expr, target_val: &str| -> bool {
+                let inner = if let Expr::Nested(n) = op_expr {
+                    n
+                } else {
+                    op_expr
+                };
+                match inner {
+                    Expr::BinaryOp {
+                        left,
+                        op: BinaryOperator::Eq,
+                        right,
+                    } => left.to_string() == target_val || right.to_string() == target_val,
+                    _ => false,
+                }
+            };
+
+            let has_zero = is_eq_check(left, "0") || is_eq_check(right, "0");
+            let has_one = is_eq_check(left, "1") || is_eq_check(right, "1");
+
+            has_zero && has_one
         }
+        _ => false,
     }
 }
 
@@ -60,7 +83,7 @@ fn convert_sqlite_to_rust_type(sql: String, nullable: bool, is_bool_context: boo
             nullable,
             contains_placeholder: false,
         }
-    } else if sql_upper.contains("TEXT"){
+    } else if sql_upper.contains("TEXT") {
         Type {
             base_type: BaseType::Text,
             nullable,
@@ -114,7 +137,7 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
                     let data_type = convert_sqlite_to_rust_type(
                         col.data_type.to_string(),
                         nullable,
-                        is_detected_boolean
+                        is_detected_boolean,
                     );
 
                     ColumnInfo {
