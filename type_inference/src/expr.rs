@@ -4,7 +4,7 @@ use sqlparser::ast::{
     BinaryOperator, DataType, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, Value,
 };
 
-use crate::table::ColumnInfo;
+use crate::{select_patterns::traverse_select_output, table::ColumnInfo};
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BaseType {
     Integer,
@@ -92,26 +92,25 @@ pub fn evaluate_expr_type(
         // Expr::Prior() TODO
         // Expr::MemberOf() json specifc TODO
         // Compound
-        Expr::Subquery(query) => {
-            // Check the first item in the subquery's projection
-            if let sqlparser::ast::SetExpr::Select(select) = &*query.body
-                && let Some(item) = select.projection.first()
-            {
-                match item {
-                    sqlparser::ast::SelectItem::UnnamedExpr(expr)
-                    | sqlparser::ast::SelectItem::ExprWithAlias { expr, .. } => {
-                        return evaluate_expr_type(expr, table_names_from_select, all_tables);
-                    }
-                    _ => {}
+        Expr::Subquery(query) => match traverse_select_output(&query.body, all_tables) {
+            Ok(columns) => {
+                if let Some(first_col) = columns.first() {
+                    let mut result_type = first_col.data_type.clone();
+                    result_type.nullable = true;
+                    Ok(result_type)
+                } else {
+                    Ok(Type {
+                        base_type: BaseType::Null,
+                        nullable: true,
+                        contains_placeholder: false,
+                    })
                 }
             }
-            Ok(Type {
-                base_type: BaseType::Unknowns,
-                nullable: true,
-                contains_placeholder: false,
-            })
-        }
-
+            Err(e_msg) => Err(format!(
+                "Subquery Analysis Failed:\n  Expression: {}\n  Reason: {}",
+                expr, e_msg
+            )),
+        },
         // Raw Values e.g. SELECT 1 or SELECT "hello"
         Expr::Value(val) => {
             // identifies whether its a float or int
@@ -598,7 +597,7 @@ pub fn evaluate_expr_type(
                     nullable: all_args_nullable,
                     contains_placeholder: false,
                 }),
-                
+
                 // Always nullable (returns NULL if args match)
                 "NULLIF" => Ok(Type {
                     base_type: input_type.base_type,
