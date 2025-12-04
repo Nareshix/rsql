@@ -44,11 +44,7 @@ pub fn get_type_of_binding_parameters(
     sql: &str,
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
 ) -> Result<Vec<Type>, InferenceError> {
-    let statement = &Parser::parse_sql(&SQLiteDialect {}, sql).map_err(|e| InferenceError {
-        start: Location { line: 1, column: 1 },
-        end: Location { line: 1, column: 1 },
-        message: e.to_string(),
-    })?[0];
+    let statement = &Parser::parse_sql(&SQLiteDialect {}, sql).unwrap()[0];
 
     let table_names = get_table_names(sql);
     let mut results = Vec::new();
