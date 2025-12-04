@@ -1033,4 +1033,243 @@ mod tests {
             vec![t(BaseType::Bool, true)],
         );
     }
+    #[test]
+    fn test_column_alias_basic() {
+        check_select_types(
+            "SELECT id AS user_id, name AS full_name FROM users",
+            vec![t(BaseType::Integer, false), t(BaseType::Text, false)],
+        );
+    }
+
+    #[test]
+    fn test_table_alias_basic() {
+        check_select_types(
+            "SELECT u.id, u.name FROM users AS u",
+            vec![t(BaseType::Integer, false), t(BaseType::Text, false)],
+        );
+    }
+
+    #[test]
+    fn test_table_alias_without_as() {
+        check_select_types(
+            "SELECT u.id, u.name FROM users u",
+            vec![t(BaseType::Integer, false), t(BaseType::Text, false)],
+        );
+    }
+
+    #[test]
+    fn test_expression_alias() {
+        check_select_types(
+            "SELECT costs * 2 AS double_cost, age + 1 AS next_age FROM users",
+            vec![t(BaseType::Real, true), t(BaseType::Integer, true)],
+        );
+    }
+
+    #[test]
+    fn test_aggregate_alias() {
+        check_select_types(
+            "SELECT COUNT(*) AS total_count, AVG(age) AS avg_age FROM users",
+            vec![t(BaseType::Integer, false), t(BaseType::Real, true)],
+        );
+    }
+
+    #[test]
+    fn test_subquery_uses_outer_alias() {
+        check_select_types(
+            "SELECT u.name, (SELECT COUNT(*) FROM orders WHERE user_id = u.id) AS order_count FROM users u",
+            vec![t(BaseType::Text, false), t(BaseType::Integer, false)],
+        );
+    }
+
+    #[test]
+    fn test_join_with_aliases() {
+        check_select_types(
+            "SELECT u.name, o.total
+         FROM users AS u
+         JOIN orders AS o ON u.id = o.user_id",
+            vec![t(BaseType::Text, false), t(BaseType::Real, false)],
+        );
+    }
+
+    #[test]
+    fn test_join_mixed_alias_styles() {
+        check_select_types(
+            "SELECT u.name, o.total, p.price
+         FROM users u
+         JOIN orders AS o ON u.id = o.user_id
+         JOIN products p ON o.order_id = p.product_id",
+            vec![
+                t(BaseType::Text, false),
+                t(BaseType::Real, false),
+                t(BaseType::Real, false),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_self_join_requires_aliases() {
+        check_select_types(
+            "SELECT u1.name AS name1, u2.name AS name2
+         FROM users u1
+         JOIN users u2 ON u1.id = u2.id + 1",
+            vec![t(BaseType::Text, false), t(BaseType::Text, false)],
+        );
+    }
+
+    #[test]
+    fn test_derived_table_alias() {
+        check_select_types(
+            "SELECT sub.calc FROM (SELECT price * 2 AS calc FROM products) AS sub",
+            vec![t(BaseType::Real, false)],
+        );
+    }
+
+    #[test]
+    fn test_derived_table_column_reference() {
+        check_select_types(
+            "SELECT derived.product_id, derived.doubled
+         FROM (SELECT product_id, price * 2 AS doubled FROM products) AS derived",
+            vec![t(BaseType::Integer, false), t(BaseType::Real, false)],
+        );
+    }
+
+    #[test]
+    fn test_cte_alias_basic() {
+        check_select_types(
+            "WITH user_data AS (SELECT id, name FROM users)
+         SELECT id, name FROM user_data",
+            vec![t(BaseType::Integer, false), t(BaseType::Text, false)],
+        );
+    }
+
+    #[test]
+    fn test_cte_column_aliases() {
+        check_select_types(
+            "WITH user_data(user_id, user_name) AS (SELECT id, name FROM users)
+         SELECT user_id, user_name FROM user_data",
+            vec![t(BaseType::Integer, false), t(BaseType::Text, false)],
+        );
+    }
+
+    #[test]
+    fn test_cte_referenced_by_alias() {
+        check_select_types(
+            "WITH user_data AS (SELECT id, name FROM users)
+         SELECT ud.id, ud.name FROM user_data AS ud",
+            vec![t(BaseType::Integer, false), t(BaseType::Text, false)],
+        );
+    }
+
+    #[test]
+    fn test_multiple_ctes_with_aliases() {
+        check_select_types(
+            "WITH
+         high_cost AS (SELECT id AS user_id, costs FROM users WHERE costs > 100),
+         summary AS (SELECT user_id, costs * 2 AS double_cost FROM high_cost)
+         SELECT s.user_id, s.double_cost FROM summary AS s",
+            vec![t(BaseType::Integer, false), t(BaseType::Real, true)],
+        );
+    }
+
+    #[test]
+    fn test_alias_in_where_clause() {
+        // Note: SQL doesn't allow aliases in WHERE, but can use in HAVING
+        check_select_types(
+            "SELECT costs AS c FROM users u WHERE u.costs > 100",
+            vec![t(BaseType::Real, true)],
+        );
+    }
+
+    #[test]
+    fn test_alias_in_having_clause() {
+        check_select_types(
+            "SELECT age, COUNT(*) AS cnt FROM users GROUP BY age HAVING cnt > 1",
+            vec![t(BaseType::Integer, true), t(BaseType::Integer, false)],
+        );
+    }
+
+    #[test]
+    fn test_alias_in_order_by() {
+        check_select_types(
+            "SELECT costs * 2 AS double_cost FROM users ORDER BY double_cost",
+            vec![t(BaseType::Real, true)],
+        );
+    }
+
+    #[test]
+    fn test_window_function_alias() {
+        check_select_types(
+            "SELECT
+            id,
+            ROW_NUMBER() OVER (ORDER BY id) AS row_num,
+            SUM(costs) OVER (PARTITION BY age) AS total_by_age
+         FROM users",
+            vec![
+                t(BaseType::Integer, false),
+                t(BaseType::Integer, false),
+                t(BaseType::Real, true),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_union_with_aliases() {
+        check_select_types(
+            "SELECT id AS identifier FROM users
+         UNION
+         SELECT product_id AS identifier FROM products",
+            vec![t(BaseType::Integer, false)],
+        );
+    }
+
+    #[test]
+    fn test_case_with_alias() {
+        check_select_types(
+            "SELECT CASE WHEN age > 18 THEN 'adult' ELSE 'minor' END AS age_group FROM users",
+            vec![t(BaseType::Text, false)],
+        );
+    }
+
+    #[test]
+    fn test_nested_subquery_aliases() {
+        check_select_types(
+            "SELECT outer_sub.total_spent
+         FROM (
+             SELECT inner_sub.user_id, SUM(inner_sub.amount) AS total_spent
+             FROM (
+                 SELECT user_id, total AS amount FROM orders
+             ) AS inner_sub
+             GROUP BY inner_sub.user_id
+         ) AS outer_sub",
+            vec![t(BaseType::Real, true)],
+        );
+    }
+
+    #[test]
+    fn test_table_wildcard_with_alias() {
+        check_select_types(
+            "SELECT u.* FROM users u",
+            vec![
+                t(BaseType::Integer, false),
+                t(BaseType::Text, false),
+                t(BaseType::Real, true),
+                t(BaseType::Integer, true),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_multiple_table_wildcards_with_aliases() {
+        check_select_types(
+            "SELECT u.*, o.order_id, o.total FROM users u JOIN orders o ON u.id = o.user_id",
+            vec![
+                t(BaseType::Integer, false), // users.id
+                t(BaseType::Text, false),    // users.name
+                t(BaseType::Real, true),     // users.costs
+                t(BaseType::Integer, true),  // users.age
+                t(BaseType::Integer, false), // orders.order_id
+                t(BaseType::Real, false),    // orders.total
+            ],
+        );
+    }
 }
