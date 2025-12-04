@@ -5,16 +5,17 @@ use sqlparser::{
 };
 use std::collections::HashMap;
 
+use crate::expr::evaluate_expr_type;
 use crate::pg_type_cast_to_sqlite::pg_cast_syntax_to_sqlite;
-use crate::{expr::evaluate_expr_type};
 use crate::{expr::Type, table::ColumnInfo};
 
 pub fn get_types_from_select(
     sql: &str,
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
-) -> Vec<Result<Type, String>> {
+) -> Result<Vec<Type>, String> {
     let dialect = SQLiteDialect {};
     let sql = pg_cast_syntax_to_sqlite(sql);
+
     let ast = Parser::parse_sql(&dialect, &sql).unwrap();
 
     if let Statement::Query(query) = &ast[0] {
@@ -25,27 +26,25 @@ pub fn get_types_from_select(
                 let cte_name = cte.alias.name.value.clone();
 
                 let cte_types = if let SetExpr::SetOperation { left, .. } = &*cte.query.body {
-                    traverse_select_output(left, &context_tables)
+                    traverse_select_output(left, &context_tables)?
                 } else {
-                    traverse_select_output(&cte.query.body, &context_tables)
+                    traverse_select_output(&cte.query.body, &context_tables)?
                 };
 
                 let mut cols = Vec::new();
-                for (i, t_res) in cte_types.into_iter().enumerate() {
-                    if let Ok(t) = t_res {
-                        let col_name = if let Some(col_def) = cte.alias.columns.get(i) {
-                            col_def.name.value.clone()
-                        }
-                        else {
-                            format!("col_{}", i)
-                        };
 
-                        cols.push(ColumnInfo {
-                            name: col_name,
-                            data_type: t,
-                            check_constraint: None,
-                        });
-                    }
+                for (i, t) in cte_types.into_iter().enumerate() {
+                    let col_name = if let Some(col_def) = cte.alias.columns.get(i) {
+                        col_def.name.value.clone()
+                    } else {
+                        format!("col_{}", i)
+                    };
+
+                    cols.push(ColumnInfo {
+                        name: col_name,
+                        data_type: t,
+                        check_constraint: None,
+                    });
                 }
                 context_tables.insert(cte_name, cols);
             }
@@ -54,13 +53,13 @@ pub fn get_types_from_select(
         return traverse_select_output(&query.body, &context_tables);
     }
 
-    vec![]
+    Ok(vec![])
 }
 
 fn traverse_select_output(
     body: &SetExpr,
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
-) -> Vec<Result<Type, String>> {
+) -> Result<Vec<Type>, String> {
     match body {
         SetExpr::Select(select) => {
             let mut local_scope_tables = Vec::new();
@@ -74,7 +73,6 @@ fn traverse_select_output(
 
                 for relation in relations {
                     match relation {
-                        // Case A: Standard Table
                         sqlparser::ast::TableFactor::Table { name, alias, .. } => {
                             let real_name =
                                 if let Some(sqlparser::ast::ObjectNamePart::Identifier(ident)) =
@@ -103,26 +101,24 @@ fn traverse_select_output(
                         } => {
                             let alias_name = alias_node.name.value.clone();
 
-                            let sub_types = traverse_select_output(&subquery.body, all_tables);
+                            let sub_types = traverse_select_output(&subquery.body, all_tables)?;
 
                             let mut cols = Vec::new();
-                            for (i, t_res) in sub_types.into_iter().enumerate() {
-                                if let Ok(t) = t_res {
-                                    let col_name = if let SetExpr::Select(sub_s) = &*subquery.body
-                                        && let Some(SelectItem::ExprWithAlias { alias, .. }) =
-                                            sub_s.projection.get(i)
-                                    {
-                                        alias.value.clone()
-                                    } else {
-                                        format!("col_{}", i)
-                                    };
+                            for (i, t) in sub_types.into_iter().enumerate() {
+                                let col_name = if let SetExpr::Select(sub_s) = &*subquery.body
+                                    && let Some(SelectItem::ExprWithAlias { alias, .. }) =
+                                        sub_s.projection.get(i)
+                                {
+                                    alias.value.clone()
+                                } else {
+                                    format!("col_{}", i)
+                                };
 
-                                    cols.push(ColumnInfo {
-                                        name: col_name,
-                                        data_type: t,
-                                        check_constraint: None,
-                                    });
-                                }
+                                cols.push(ColumnInfo {
+                                    name: col_name,
+                                    data_type: t,
+                                    check_constraint: None,
+                                });
                             }
 
                             working_tables.insert(alias_name.clone(), cols);
@@ -133,13 +129,12 @@ fn traverse_select_output(
                 }
             }
 
-            // 2. Process Projections
             let mut column_types = Vec::new();
 
             for item in &select.projection {
                 match item {
                     SelectItem::UnnamedExpr(expr) | SelectItem::ExprWithAlias { expr, .. } => {
-                        let t = evaluate_expr_type(expr, &local_scope_tables, &working_tables);
+                        let t = evaluate_expr_type(expr, &local_scope_tables, &working_tables)?;
                         column_types.push(t);
                     }
 
@@ -147,7 +142,7 @@ fn traverse_select_output(
                         for table_name in &local_scope_tables {
                             if let Some(column_infos) = working_tables.get(table_name) {
                                 for column_info in column_infos {
-                                    column_types.push(Ok(column_info.data_type.clone()));
+                                    column_types.push(column_info.data_type.clone());
                                 }
                             }
                         }
@@ -166,14 +161,14 @@ fn traverse_select_output(
 
                             if let Some(column_infos) = working_tables.get(&alias_name) {
                                 for column_info in column_infos {
-                                    column_types.push(Ok(column_info.data_type.clone()));
+                                    column_types.push(column_info.data_type.clone());
                                 }
                             }
                         }
                     }
                 }
             }
-            column_types
+            Ok(column_types)
         }
 
         SetExpr::SetOperation { left, .. } => traverse_select_output(left, all_tables),
@@ -182,14 +177,14 @@ fn traverse_select_output(
             let mut types = Vec::new();
             if let Some(first_row) = values.rows.first() {
                 for expr in first_row {
-                    types.push(evaluate_expr_type(expr, &vec![], all_tables));
+                    types.push(evaluate_expr_type(expr, &vec![], all_tables)?);
                 }
             }
-            types
+            Ok(types)
         }
 
         SetExpr::Query(q) => traverse_select_output(&q.body, all_tables),
 
-        _ => vec![],
+        _ => Ok(vec![]),
     }
 }
