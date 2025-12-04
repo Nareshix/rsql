@@ -1,4 +1,5 @@
 use crate::expr::{BaseType, Type, evaluate_expr_type};
+use crate::pg_type_cast_to_sqlite::pg_cast_syntax_to_sqlite;
 use crate::table::{ColumnInfo, get_table_names};
 use sqlparser::ast::{
     BinaryOperator, DataType, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, SetExpr,
@@ -45,8 +46,9 @@ pub fn get_type_of_binding_parameters(
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
 ) -> Result<Vec<Type>, InferenceError> {
     let statement = &Parser::parse_sql(&SQLiteDialect {}, sql).unwrap()[0];
+    let sql = pg_cast_syntax_to_sqlite(sql);
 
-    let table_names = get_table_names(sql);
+    let table_names = get_table_names(&sql);
     let mut results = Vec::new();
 
     let bool_hint = Some(Type {

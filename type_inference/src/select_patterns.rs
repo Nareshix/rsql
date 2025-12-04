@@ -5,7 +5,8 @@ use sqlparser::{
 };
 use std::collections::HashMap;
 
-use crate::expr::evaluate_expr_type;
+use crate::pg_type_cast_to_sqlite::pg_cast_syntax_to_sqlite;
+use crate::{expr::evaluate_expr_type};
 use crate::{expr::Type, table::ColumnInfo};
 
 pub fn get_types_from_select(
@@ -13,7 +14,8 @@ pub fn get_types_from_select(
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
 ) -> Vec<Result<Type, String>> {
     let dialect = SQLiteDialect {};
-    let ast = Parser::parse_sql(&dialect, sql).unwrap();
+    let sql = pg_cast_syntax_to_sqlite(sql);
+    let ast = Parser::parse_sql(&dialect, &sql).unwrap();
 
     if let Statement::Query(query) = &ast[0] {
         let mut context_tables = all_tables.clone();
