@@ -96,7 +96,41 @@ pub fn evaluate_expr_type(
             Ok(columns) => {
                 if let Some(first_col) = columns.first() {
                     let mut result_type = first_col.data_type.clone();
+
                     result_type.nullable = true;
+
+                    if let sqlparser::ast::SetExpr::Select(select) = &*query.body {
+                        let has_group_by = match &select.group_by {
+                            sqlparser::ast::GroupByExpr::Expressions(exprs, _) => !exprs.is_empty(),
+                            sqlparser::ast::GroupByExpr::All(_) => true,
+                        };
+
+                        let has_having = select.having.is_some();
+
+                        if !has_group_by
+                            && !has_having
+                            && let Some(proj) = select.projection.first()
+                        {
+                            let func_name = match proj {
+                                sqlparser::ast::SelectItem::UnnamedExpr(Expr::Function(f)) => {
+                                    Some(&f.name)
+                                }
+                                sqlparser::ast::SelectItem::ExprWithAlias {
+                                    expr: Expr::Function(f),
+                                    ..
+                                } => Some(&f.name),
+                                _ => None,
+                            };
+
+                            if let Some(name) = func_name {
+                                let upper = name.to_string().to_uppercase();
+                                if upper == "COUNT" || upper == "TOTAL" {
+                                    result_type.nullable = false;
+                                }
+                            }
+                        }
+                    }
+
                     Ok(result_type)
                 } else {
                     Ok(Type {
