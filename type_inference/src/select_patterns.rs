@@ -1,6 +1,6 @@
 use sqlparser::{
     ast::{
-        Expr, JoinOperator, SelectItem, SelectItemQualifiedWildcardKind, SetExpr, SetOperator,
+        Cte, Expr, JoinOperator, SelectItem, SelectItemQualifiedWildcardKind, SetExpr, SetOperator,
         Statement, TableFactor,
     },
     dialect::SQLiteDialect,
@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use crate::expr::{BaseType, evaluate_expr_type};
 use crate::pg_type_cast_to_sqlite::pg_cast_syntax_to_sqlite;
 use crate::{expr::Type, table::ColumnInfo};
+
 pub fn get_types_from_select(
     sql: &str,
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
@@ -27,82 +28,24 @@ pub fn get_types_from_select(
             for cte in &with.cte_tables {
                 let cte_name = cte.alias.name.value.clone();
 
-                // 1. Check if the body is a UNION (SetOperation)
-                let (mut final_cols, right_body_opt) =
-                    if let SetExpr::SetOperation { left, right, .. } = &*cte.query.body {
-                        // Analyze LEFT side (Anchor)
-                        let left_cols = traverse_select_output(left, &context_tables)?;
-                        (left_cols, Some(right))
+                let inferred_cols = resolve_cte_columns(cte, &context_tables)?;
+
+                let mut final_cols = Vec::new();
+                for (i, inferred_col) in inferred_cols.into_iter().enumerate() {
+                    let name = if let Some(alias) = cte.alias.columns.get(i) {
+                        alias.name.value.clone()
                     } else {
-                        // Standard CTE
-                        (
-                            traverse_select_output(&cte.query.body, &context_tables)?,
-                            None,
-                        )
+                        inferred_col.name
                     };
 
-                // 2. Prepare the Initial Context for the Recursive step
-                // We must register the CTE now so the Recursive part can "see" itself.
-                let mut initial_cte_cols = Vec::new();
-                for (i, col) in final_cols.iter().enumerate() {
-                    let name = if let Some(col_def) = cte.alias.columns.get(i) {
-                        col_def.name.value.clone()
-                    } else {
-                        col.name.clone()
-                    };
-                    initial_cte_cols.push(ColumnInfo {
+                    final_cols.push(ColumnInfo {
                         name,
-                        data_type: col.data_type.clone(),
+                        data_type: inferred_col.data_type,
                         check_constraint: None,
                     });
                 }
-                context_tables.insert(cte_name.clone(), initial_cte_cols.clone());
 
-                // 3. If it was a UNION, now analyze the RIGHT side (Recursive)
-                if let Some(right_body) = right_body_opt {
-                    // This call uses 'context_tables' which now contains the CTE definition based on Left
-                    let right_cols = traverse_select_output(right_body, &context_tables)?;
-
-                    // 4. Merge/Promote types (Int + Real = Real)
-                    let mut promoted_cols = Vec::new();
-                    for (i, l_col) in final_cols.iter().enumerate() {
-                        let mut final_col = l_col.clone();
-                        if let Some(r_col) = right_cols.get(i) {
-                            // Nullability
-                            if r_col.data_type.nullable {
-                                final_col.data_type.nullable = true;
-                            }
-                            // Promotion
-                            if l_col.data_type.base_type == BaseType::Integer
-                                && r_col.data_type.base_type == BaseType::Real
-                            {
-                                final_col.data_type.base_type = BaseType::Real;
-                            }
-                            // Note: If you have Text + Int, SQLite prefers Text usually,
-                            // but for now Int+Real is the critical one.
-                        }
-                        promoted_cols.push(final_col);
-                    }
-
-                    // 5. Update the context with the PROMOTED types
-                    final_cols = promoted_cols; // Update for final registration
-
-                    // Re-register with new types
-                    let mut final_cte_cols = Vec::new();
-                    for (i, col) in final_cols.iter().enumerate() {
-                        let name = if let Some(col_def) = cte.alias.columns.get(i) {
-                            col_def.name.value.clone()
-                        } else {
-                            col.name.clone()
-                        };
-                        final_cte_cols.push(ColumnInfo {
-                            name,
-                            data_type: col.data_type.clone(),
-                            check_constraint: None,
-                        });
-                    }
-                    context_tables.insert(cte_name, final_cte_cols);
-                }
+                context_tables.insert(cte_name, final_cols);
             }
         }
 
@@ -112,7 +55,50 @@ pub fn get_types_from_select(
 
     Ok(vec![])
 }
-fn traverse_select_output(
+
+fn resolve_cte_columns(
+    cte: &Cte,
+    context: &HashMap<String, Vec<ColumnInfo>>,
+) -> Result<Vec<ColumnInfo>, String> {
+    if let SetExpr::SetOperation { left, right, .. } = &*cte.query.body {
+        let anchor_cols = traverse_select_output(left, context)?;
+
+        let mut recursive_context = context.clone();
+        let cte_name = cte.alias.name.value.clone();
+        let mut context_anchor_cols = Vec::new();
+        for (i, col) in anchor_cols.iter().enumerate() {
+            let mut new_col = col.clone();
+            if let Some(alias) = cte.alias.columns.get(i) {
+                new_col.name = alias.name.value.clone();
+            }
+            context_anchor_cols.push(new_col);
+        }
+        recursive_context.insert(cte_name, context_anchor_cols);
+
+        let recursive_cols = traverse_select_output(right, &recursive_context)?;
+
+        let mut merged_cols = Vec::new();
+        for (i, l_col) in anchor_cols.iter().enumerate() {
+            let mut final_col = l_col.clone();
+            if let Some(r_col) = recursive_cols.get(i) {
+                if r_col.data_type.nullable {
+                    final_col.data_type.nullable = true;
+                }
+                if l_col.data_type.base_type == BaseType::Integer
+                    && r_col.data_type.base_type == BaseType::Real
+                {
+                    final_col.data_type.base_type = BaseType::Real;
+                }
+            }
+            merged_cols.push(final_col);
+        }
+        Ok(merged_cols)
+    } else {
+        // Standard CTE
+        traverse_select_output(&cte.query.body, context)
+    }
+}
+pub fn traverse_select_output(
     body: &SetExpr,
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
 ) -> Result<Vec<ColumnInfo>, String> {
@@ -131,25 +117,43 @@ fn traverse_select_output(
                 )?;
 
                 for join in &table_with_joins.joins {
-                    let is_join_nullable = matches!(
+                    // Current table (Right side of the join syntax) becomes nullable
+                    // if it is a LEFT or FULL join.
+                    let make_current_table_nullable = matches!(
                         &join.join_operator,
                         JoinOperator::Left(_)
                             | JoinOperator::LeftOuter(_)
-                            | JoinOperator::Right(_)
+                            | JoinOperator::FullOuter(_)
+                    );
+
+                    // Existing tables (Left side of the join syntax) become nullable
+                    // if it is a RIGHT or FULL join.
+                    let make_existing_tables_nullable = matches!(
+                        &join.join_operator,
+                        JoinOperator::Right(_)
                             | JoinOperator::RightOuter(_)
                             | JoinOperator::FullOuter(_)
                     );
 
+                    if make_existing_tables_nullable {
+                        for table_name in &local_scope_tables {
+                            if let Some(cols) = working_tables.get_mut(table_name) {
+                                for col in cols {
+                                    col.data_type.nullable = true;
+                                }
+                            }
+                        }
+                    }
+
                     resolve_table_factor(
                         &join.relation,
-                        is_join_nullable,
+                        make_current_table_nullable,
                         all_tables,
                         &mut working_tables,
                         &mut local_scope_tables,
                     )?;
                 }
             }
-
             let mut output_columns = Vec::new();
 
             for (i, item) in select.projection.iter().enumerate() {
