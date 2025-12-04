@@ -1173,7 +1173,6 @@ mod tests {
 
     #[test]
     fn test_alias_in_where_clause() {
-        // Note: SQL doesn't allow aliases in WHERE, but can use in HAVING
         check_select_types(
             "SELECT costs AS c FROM users u WHERE u.costs > 100",
             vec![t(BaseType::Real, true)],
@@ -1263,12 +1262,12 @@ mod tests {
         check_select_types(
             "SELECT u.*, o.order_id, o.total FROM users u JOIN orders o ON u.id = o.user_id",
             vec![
-                t(BaseType::Integer, false), // users.id
-                t(BaseType::Text, false),    // users.name
-                t(BaseType::Real, true),     // users.costs
-                t(BaseType::Integer, true),  // users.age
-                t(BaseType::Integer, false), // orders.order_id
-                t(BaseType::Real, false),    // orders.total
+                t(BaseType::Integer, false),
+                t(BaseType::Text, false),
+                t(BaseType::Real, true),
+                t(BaseType::Integer, true),
+                t(BaseType::Integer, false),
+                t(BaseType::Real, false),
             ],
         );
     }
