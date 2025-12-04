@@ -74,7 +74,10 @@ pub fn get_type_of_binding_parameters(
                             all_tables,
                             &mut results,
                             hint,
-                        )?;
+                        )
+                        .map_err(|e| {
+                            format!("{} in UPDATE assignment to column '{}'", e, col_name)
+                        })?;
                     }
                     sqlparser::ast::AssignmentTarget::Tuple(col_names) => {
                         if let sqlparser::ast::Expr::Tuple(values) = &assignment.value {
@@ -161,7 +164,10 @@ pub fn get_type_of_binding_parameters(
                         for row in &values.rows {
                             for (idx, expr) in row.iter().enumerate() {
                                 let hint = expected_types.get(idx).cloned().flatten();
-                                traverse_expr(expr, &table_names, all_tables, &mut results, hint)?;
+                                traverse_expr(expr, &table_names, all_tables, &mut results, hint)
+                                    .map_err(|e| {
+                                    format!("{} in INSERT value at column index {}", e, idx)
+                                })?;
                             }
                         }
                     }
@@ -221,7 +227,10 @@ pub fn get_type_of_binding_parameters(
                         all_tables,
                         &mut results,
                         hint,
-                    )?;
+                    )
+                    .map_err(|e| {
+                        format!("{} in UPSERT (ON CONFLICT) assignment to '{}'", e, col_name)
+                    })?;
                 }
                 if let Some(selection) = &do_update.selection {
                     traverse_expr(
@@ -270,15 +279,13 @@ fn traverse_expr(
         }
         Expr::Value(val) => {
             if let sqlparser::ast::Value::Placeholder(_) = val.value {
-                let t = parent_hint
-                    .ok_or("Could not infer type for placeholder (ambiguous context)")?;
+                let line = val.span.start.line;
+                let col = val.span.start.column;
+
+                let t = parent_hint.ok_or_else(|| format!("at Line {}, Column {}", line, col))?;
+
                 if t.base_type == BaseType::PlaceHolder || t.base_type == BaseType::Unknowns {
-                    let line = val.span.start.line;
-                    let col = val.span.start.column;
-                    return Err(format!(
-                        "Could not infer type for placeholder at Line {}, Column {}. Try casting.",
-                        line, col
-                    ));
+                    return Err(format!("at Line {}, Column {}", line, col,));
                 }
 
                 results.push(t);
@@ -302,7 +309,8 @@ fn traverse_expr(
                     nullable: true,
                     contains_placeholder: false,
                 }),
-            )?;
+            )
+            .map_err(|e| format!("{} in LIKE target expression", e))?;
 
             traverse_expr(
                 pattern,
@@ -314,7 +322,8 @@ fn traverse_expr(
                     nullable: true,
                     contains_placeholder: false,
                 }),
-            )?;
+            )
+            .map_err(|e| format!("{} in LIKE pattern", e))?;
 
             if let Some(escape) = escape_char {
                 let escape_expr = Expr::Value(escape.clone().into());
@@ -417,8 +426,11 @@ fn traverse_expr(
                 _ => (None, None),
             };
 
-            traverse_expr(left, table_names, all_tables, results, left_hint)?;
-            traverse_expr(right, table_names, all_tables, results, right_hint)?;
+            let err_fmt =
+                |e: String| format!("{} unable to infer expr '{}'. Consider casting.", e, expr);
+
+            traverse_expr(left, table_names, all_tables, results, left_hint).map_err(err_fmt)?;
+            traverse_expr(right, table_names, all_tables, results, right_hint).map_err(err_fmt)?;
 
             Ok(())
         }
@@ -443,10 +455,12 @@ fn traverse_expr(
                 }
             }
 
-            traverse_expr(expr, table_names, all_tables, results, common_type.clone())?;
+            traverse_expr(expr, table_names, all_tables, results, common_type.clone())
+                .map_err(|e| format!("{} inside IN (...) list", e))?;
 
             for item in list {
-                traverse_expr(item, table_names, all_tables, results, common_type.clone())?;
+                traverse_expr(item, table_names, all_tables, results, common_type.clone())
+                    .map_err(|e| format!("{} inside IN (...) list", e))?;
             }
 
             Ok(())
@@ -529,7 +543,8 @@ fn traverse_expr(
                 _ => None,
             };
 
-            traverse_expr(expr, table_names, all_tables, results, target_type)?;
+            traverse_expr(expr, table_names, all_tables, results, target_type)
+                .map_err(|e| format!("{} inside CAST", e))?;
             Ok(())
         }
 
@@ -576,7 +591,8 @@ fn traverse_expr(
                     contains_placeholder: false,
                 }));
 
-                traverse_expr(&cond.condition, table_names, all_tables, results, when_hint)?;
+                traverse_expr(&cond.condition, table_names, all_tables, results, when_hint)
+                    .map_err(|e| format!("{} in CASE/WHEN condition", e))?;
 
                 traverse_expr(
                     &cond.result,
@@ -584,7 +600,8 @@ fn traverse_expr(
                     all_tables,
                     results,
                     result_hint.clone(),
-                )?;
+                )
+                .map_err(|e| format!("{} in CASE/THEN result", e))?;
             }
 
             if let Some(else_expr) = else_result {
@@ -689,13 +706,10 @@ fn traverse_expr(
             if let FunctionArguments::List(args_list) = &func.args {
                 for arg in &args_list.args {
                     if let FunctionArg::Unnamed(FunctionArgExpr::Expr(arg_expr)) = arg {
-                        traverse_expr(
-                            arg_expr,
-                            table_names,
-                            all_tables,
-                            results,
-                            arg_hint.clone(),
-                        )?;
+                        traverse_expr(arg_expr, table_names, all_tables, results, arg_hint.clone())
+                            .map_err(|e| {
+                                format!("{} unable to infer expr {}. Consider casting.", e, expr)
+                            })?;
                     }
                 }
             }
