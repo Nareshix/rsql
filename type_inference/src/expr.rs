@@ -407,15 +407,16 @@ pub fn evaluate_expr_type(
             }
         }
 
-        // Nested expression e.g. (foo > bar) or (1)
         Expr::Nested(inner_expr) => {
             evaluate_expr_type(inner_expr, table_names_from_select, all_tables)
         }
+        Expr::Cast {
+            expr, data_type, ..
+        } => {
+            let input_type = evaluate_expr_type(expr, table_names_from_select, all_tables)?;
 
-        // Expr::Convert {..}
-        Expr::Cast { data_type, .. } => {
             // http://www.sqlite.org/datatype3.html#affinity_name_examples
-            match data_type {
+            let target_base_type = match data_type {
                 DataType::Int(_)
                 | DataType::Integer(_)
                 | DataType::TinyInt(_)
@@ -424,7 +425,7 @@ pub fn evaluate_expr_type(
                 | DataType::BigInt(_)
                 | DataType::BigIntUnsigned(_)
                 | DataType::Int2(_)
-                | DataType::Int8(_) => Ok(Type { base_type: BaseType::Integer, nullable: true, contains_placeholder: false }),
+                | DataType::Int8(_) => BaseType::Integer,
 
                 DataType::Character(_)
                 | DataType::Varchar(_)
@@ -434,7 +435,8 @@ pub fn evaluate_expr_type(
                 // sqlparser does not have  NATIVE CHARACTER(70)
                 | DataType::Nvarchar(_)
                 | DataType::Text
-                | DataType::Clob(_) => Ok(Type { base_type: BaseType::Text, nullable: true, contains_placeholder: false }),
+                | DataType::Clob(_) =>BaseType::Text,
+
 
                 // TODO
                 // DataType::Blob(_) =>
@@ -444,14 +446,19 @@ pub fn evaluate_expr_type(
                 | DataType::DoublePrecision
                 | DataType::Numeric(_) //undocumented but works
                 | DataType::Decimal(_) //undocumented but works
-                | DataType::Float(_) => Ok(Type { base_type: BaseType::Real, nullable: true, contains_placeholder: false }),
+                | DataType::Float(_) => BaseType::Real,
 
 
                 // TODO Numeric
 
-                _ => Err(format!("invalid data type {}", data_type))
+                _ => return Err(format!("invalid data type {}", data_type))
 
-            }
+            };
+            Ok(Type {
+                base_type: target_base_type,
+                nullable: input_type.nullable,
+                contains_placeholder: input_type.contains_placeholder,
+            })
         }
 
         // some expressions have their own enum which couldve been inside the Function enum but isnt.
