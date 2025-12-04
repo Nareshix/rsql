@@ -8,7 +8,7 @@ use crate::{
 use std::collections::HashMap;
 
 #[derive(Debug, PartialEq)]
-// we do not care whether it contains placeholder or not. its just for internal use
+
 struct ColumnType {
     base_type: BaseType,
     nullable: bool,
@@ -266,4 +266,310 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_aliased_columns_and_tables() {
+        check_select_types(
+            "SELECT u.name AS user_name, u.age FROM users u",
+            vec![t(BaseType::Text, false), t(BaseType::Integer, true)],
+        );
+
+        check_select_types(
+            "SELECT u.name AS user_name, u.age FROM users u",
+            vec![t(BaseType::Text, false), t(BaseType::Integer, true)],
+        );
+    }
+
+    #[test]
+    fn test_implicit_cross_join_aliases() {
+        check_select_types(
+            "SELECT u.name, p.price FROM users u, products p",
+            vec![t(BaseType::Text, false), t(BaseType::Real, false)],
+        );
+    }
+
+    #[test]
+    fn test_scalar_subquery() {
+        check_select_types(
+            "SELECT name, (SELECT COUNT(*) FROM orders WHERE user_id = users.id) as order_count FROM users",
+            vec![t(BaseType::Text, false), t(BaseType::Integer, false)],
+        );
+    }
+
+    #[test]
+    fn test_derived_table_subquery() {
+        check_select_types(
+            "SELECT derived.p_id, derived.calc FROM (SELECT product_id as p_id, price * 1.2 as calc FROM products) derived",
+            vec![t(BaseType::Integer, false), t(BaseType::Real, false)],
+        );
+    }
+
+    #[test]
+    fn test_subquery_in_where_in() {
+        check_select_types(
+            "SELECT name FROM users WHERE id IN (SELECT user_id FROM orders)",
+            vec![t(BaseType::Text, false)],
+        );
+    }
+
+    #[test]
+    fn test_left_join_nullability_propagation() {
+        check_select_types(
+            "SELECT users.name, orders.total
+             FROM users
+             LEFT JOIN orders ON users.id = orders.user_id",
+            vec![t(BaseType::Text, false), t(BaseType::Real, true)],
+        );
+    }
+
+    #[test]
+    fn test_inner_join_preserves_not_null() {
+        check_select_types(
+            "SELECT users.name, orders.total
+             FROM users
+             JOIN orders ON users.id = orders.user_id",
+            vec![t(BaseType::Text, false), t(BaseType::Real, false)],
+        );
+    }
+
+    #[test]
+    fn test_simple_cte() {
+        check_select_types(
+            "WITH recent_orders AS (
+                SELECT user_id, total FROM orders WHERE total > 100.0
+             )
+             SELECT total FROM recent_orders",
+            vec![t(BaseType::Real, false)],
+        );
+    }
+
+    #[test]
+    fn test_cte_renaming_columns() {
+        check_select_types(
+            "WITH user_lookup(uid, uname) AS (
+                SELECT id, name FROM users
+             )
+             SELECT uname FROM user_lookup WHERE uid = 1",
+            vec![t(BaseType::Text, false)],
+        );
+    }
+
+    #[test]
+    fn test_chained_ctes() {
+        check_select_types(
+            "WITH
+             step1 AS (SELECT id, costs FROM users),
+             step2 AS (SELECT id, costs * 2 as double_cost FROM step1)
+             SELECT double_cost FROM step2",
+            vec![t(BaseType::Real, true)],
+        );
+    }
+
+    #[test]
+    fn test_union_nullability_mixing() {
+        check_select_types(
+            "SELECT id FROM users UNION SELECT stock FROM products",
+            vec![t(BaseType::Integer, true)],
+        );
+    }
+
+    #[test]
+    fn test_union_type_coercion() {
+        check_select_types(
+            "SELECT id FROM users UNION SELECT 3.5",
+            vec![t(BaseType::Real, false)],
+        );
+    }
+
+    #[test]
+    fn test_coalesce_makes_nullable_not_null() {
+        check_select_types(
+            "SELECT COALESCE(costs, 0.0) FROM users",
+            vec![t(BaseType::Real, false)],
+        );
+    }
+
+    #[test]
+    fn test_nullif_makes_not_null_nullable() {
+        check_select_types(
+            "SELECT NULLIF(name, 'admin') FROM users",
+            vec![t(BaseType::Text, true)],
+        );
+    }
+
+    #[test]
+    fn test_abs_function_propagates_null() {
+        check_select_types(
+            "SELECT ABS(costs) FROM users",
+            vec![t(BaseType::Real, true)],
+        );
+    }
+
+    #[test]
+    fn test_string_functions() {
+        check_select_types(
+            "SELECT UPPER(name) FROM users",
+            vec![t(BaseType::Text, false)],
+        );
+    }
+
+    #[test]
+    fn test_boolean_literals_and_comparison() {
+        check_select_types("SELECT id > 0 FROM users", vec![t(BaseType::Bool, false)]);
+
+        check_select_types(
+            "SELECT TRUE, FALSE",
+            vec![t(BaseType::Bool, false), t(BaseType::Bool, false)],
+        );
+
+        check_select_types(
+            "SELECT (costs > 0) AND (age < 100) FROM users",
+            vec![t(BaseType::Bool, true)],
+        );
+    }
+
+    #[test]
+    fn test_is_null_check() {
+        check_select_types(
+            "SELECT costs IS NULL FROM users",
+            vec![t(BaseType::Bool, false)],
+        );
+    }
+
+    #[test]
+    fn test_exists_subquery() {
+        check_select_types(
+            "SELECT EXISTS(SELECT 1 FROM users WHERE id = 1)",
+            vec![t(BaseType::Bool, false)],
+        );
+    }
+    #[test]
+    fn test_select_pure_placeholder() {
+        check_select_types("SELECT ?", vec![t(BaseType::PlaceHolder, true)]);
+    }
+
+    #[test]
+    fn test_placeholder_math_inference() {
+        check_select_types("SELECT ? + 100", vec![t(BaseType::Integer, true)]);
+
+        check_select_types("SELECT ? + 100.5", vec![t(BaseType::Real, true)]);
+    }
+    #[test]
+    fn test_window_function_row_number() {
+        check_select_types(
+            "SELECT ROW_NUMBER() OVER (ORDER BY id) FROM users",
+            vec![t(BaseType::Integer, false)],
+        );
+    }
+
+    #[test]
+    fn test_window_function_aggregates() {
+        check_select_types(
+            "SELECT SUM(total) OVER (PARTITION BY user_id) FROM orders",
+            vec![t(BaseType::Real, true)],
+        );
+    }
+
+    #[test]
+    fn test_string_length() {
+        check_select_types(
+            "SELECT LENGTH(name), LENGTH(costs) FROM users",
+            vec![t(BaseType::Integer, false), t(BaseType::Integer, true)],
+        );
+    }
+
+    #[test]
+    fn test_substr() {
+        check_select_types(
+            "SELECT SUBSTR(name, 1, 3) FROM users",
+            vec![t(BaseType::Text, false)],
+        );
+    }
+
+    #[test]
+    fn test_except_operation() {
+        check_select_types(
+            "SELECT id FROM users EXCEPT SELECT stock FROM products",
+            vec![t(BaseType::Integer, false)],
+        );
+    }
+
+    #[test]
+    fn test_recursive_cte_counter() {
+        check_select_types(
+            "WITH RECURSIVE cnt(x) AS (
+            SELECT 1
+            UNION ALL
+            SELECT x+1 FROM cnt WHERE x < 10
+         )
+         SELECT x FROM cnt",
+            vec![t(BaseType::Integer, false)],
+        );
+    }
+
+    #[test]
+    fn test_mixed_numeric_types() {
+        check_select_types("SELECT 10 + 5.5", vec![t(BaseType::Real, false)]);
+    }
+
+    #[test]
+    fn test_nested_left_join_nullability() {
+        check_select_types(
+            "SELECT sub.t
+         FROM users
+         LEFT JOIN (SELECT total as t, user_id FROM orders) sub
+         ON users.id = sub.user_id",
+            vec![t(BaseType::Real, true)],
+        );
+    }
+
+    #[test]
+    fn test_correlated_subquery() {
+        check_select_types(
+            "SELECT name,
+         (SELECT total FROM orders WHERE user_id = u.id LIMIT 1) as last_order_total
+         FROM users u",
+            vec![t(BaseType::Text, false), t(BaseType::Real, true)],
+        );
+    }
+    #[test]
+    fn test_cte_shadows_table_name() {
+        check_select_types(
+            "WITH users AS (
+            SELECT price, stock FROM products
+         )
+         SELECT price FROM users",
+            vec![t(BaseType::Real, false)],
+        );
+    }
+    #[test]
+    fn test_deeply_nested_subquery() {
+        check_select_types(
+            "SELECT * FROM (
+            SELECT (
+                SELECT product_id FROM products WHERE price > 1000
+            ) as expensive_id
+        ) tmp",
+            vec![t(BaseType::Integer, true)],
+        );
+    }
+    #[test]
+    fn test_cte_with_values_clause() {
+        check_select_types(
+            "WITH const_data(a, b) AS (
+            VALUES(1, 2.5)
+         )
+         SELECT b FROM const_data",
+            vec![t(BaseType::Real, false)],
+        );
+    }
+
+    #[test]
+    fn test_cte_usage_inside_derived_table() {
+        check_select_types(
+            "WITH raw_data AS (SELECT id, costs FROM users)
+         SELECT d.double_cost
+         FROM (SELECT costs * 2 AS double_cost FROM raw_data) d",
+            vec![t(BaseType::Real, true)],
+        );
+    }
 }
