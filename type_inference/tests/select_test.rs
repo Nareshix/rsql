@@ -31,6 +31,16 @@ fn setup_tables() -> HashMap<String, Vec<ColumnInfo>> {
         "CREATE TABLE orders (order_id INTEGER NOT NULL, user_id INTEGER NOT NULL, total REAL NOT NULL, created_at TEXT NOT NULL)",
         &mut tables,
     );
+    create_tables(
+        "CREATE TABLE flags (
+            flag_id INTEGER NOT NULL,
+            is_active INTEGER NOT NULL CHECK (is_active IN (0, 1)),
+            is_admin INTEGER CHECK (is_admin = 0 OR is_admin = 1),
+            is_visible INTEGER NOT NULL CHECK (0 = is_visible OR 1 = is_visible),
+            manual_bool BOOL
+        )",
+        &mut tables,
+    );
     tables
 }
 
@@ -572,427 +582,455 @@ mod tests {
             vec![t(BaseType::Real, true)],
         );
     }
-#[test]
-fn test_comparison_operators_all_types() {
-    check_select_types(
-        "SELECT id < 10, name = 'test', costs <= 5.0 FROM users",
-        vec![t(BaseType::Bool, false), t(BaseType::Bool, false), t(BaseType::Bool, true)],
-    );
-}
+    #[test]
+    fn test_comparison_operators_all_types() {
+        check_select_types(
+            "SELECT id < 10, name = 'test', costs <= 5.0 FROM users",
+            vec![
+                t(BaseType::Bool, false),
+                t(BaseType::Bool, false),
+                t(BaseType::Bool, true),
+            ],
+        );
+    }
 
-#[test]
-fn test_not_operator() {
-    check_select_types(
-        "SELECT NOT (id > 5) FROM users",
-        vec![t(BaseType::Bool, false)],
-    );
-}
+    #[test]
+    fn test_not_operator() {
+        check_select_types(
+            "SELECT NOT (id > 5) FROM users",
+            vec![t(BaseType::Bool, false)],
+        );
+    }
 
-#[test]
-fn test_or_operator_nullability() {
-    check_select_types(
-        "SELECT (costs > 0) OR (age < 100) FROM users",
-        vec![t(BaseType::Bool, true)],
-    );
-}
+    #[test]
+    fn test_or_operator_nullability() {
+        check_select_types(
+            "SELECT (costs > 0) OR (age < 100) FROM users",
+            vec![t(BaseType::Bool, true)],
+        );
+    }
 
-#[test]
-fn test_multiple_aggregates() {
-    check_select_types(
-        "SELECT COUNT(*), AVG(age), SUM(costs), MAX(id), MIN(name) FROM users",
-        vec![
-            t(BaseType::Integer, false),
-            t(BaseType::Real, true),
-            t(BaseType::Real, true),
-            t(BaseType::Integer, true),
-            t(BaseType::Text, true),
-        ],
-    );
-}
+    #[test]
+    fn test_multiple_aggregates() {
+        check_select_types(
+            "SELECT COUNT(*), AVG(age), SUM(costs), MAX(id), MIN(name) FROM users",
+            vec![
+                t(BaseType::Integer, false),
+                t(BaseType::Real, true),
+                t(BaseType::Real, true),
+                t(BaseType::Integer, true),
+                t(BaseType::Text, true),
+            ],
+        );
+    }
 
-#[test]
-fn test_group_by_with_aggregate() {
-    check_select_types(
-        "SELECT age, COUNT(*) FROM users GROUP BY age",
-        vec![t(BaseType::Integer, true), t(BaseType::Integer, false)],
-    );
-}
+    #[test]
+    fn test_group_by_with_aggregate() {
+        check_select_types(
+            "SELECT age, COUNT(*) FROM users GROUP BY age",
+            vec![t(BaseType::Integer, true), t(BaseType::Integer, false)],
+        );
+    }
 
-#[test]
-fn test_having_clause() {
-    check_select_types(
-        "SELECT age, COUNT(*) as cnt FROM users GROUP BY age HAVING COUNT(*) > ?",
-        vec![t(BaseType::Integer, true), t(BaseType::Integer, false)],
-    );
-}
+    #[test]
+    fn test_having_clause() {
+        check_select_types(
+            "SELECT age, COUNT(*) as cnt FROM users GROUP BY age HAVING COUNT(*) > ?",
+            vec![t(BaseType::Integer, true), t(BaseType::Integer, false)],
+        );
+    }
 
-#[test]
-fn test_order_by_not_in_select() {
-    check_select_types(
-        "SELECT name FROM users ORDER BY age DESC",
-        vec![t(BaseType::Text, false)],
-    );
-}
+    #[test]
+    fn test_order_by_not_in_select() {
+        check_select_types(
+            "SELECT name FROM users ORDER BY age DESC",
+            vec![t(BaseType::Text, false)],
+        );
+    }
 
-#[test]
-fn test_limit_and_offset() {
-    check_select_types(
-        "SELECT id FROM users LIMIT ? OFFSET ?",
-        vec![t(BaseType::Integer, false)],
-    );
-}
+    #[test]
+    fn test_limit_and_offset() {
+        check_select_types(
+            "SELECT id FROM users LIMIT ? OFFSET ?",
+            vec![t(BaseType::Integer, false)],
+        );
+    }
 
-#[test]
-fn test_distinct() {
-    check_select_types(
-        "SELECT DISTINCT age FROM users",
-        vec![t(BaseType::Integer, true)],
-    );
-}
+    #[test]
+    fn test_distinct() {
+        check_select_types(
+            "SELECT DISTINCT age FROM users",
+            vec![t(BaseType::Integer, true)],
+        );
+    }
 
-#[test]
-fn test_case_with_multiple_when() {
-    check_select_types(
-        "SELECT CASE
+    #[test]
+    fn test_case_with_multiple_when() {
+        check_select_types(
+            "SELECT CASE
             WHEN age < 18 THEN 'minor'
             WHEN age < 65 THEN 'adult'
             ELSE 'senior'
          END FROM users",
-        vec![t(BaseType::Text, false)],
-    );
-}
+            vec![t(BaseType::Text, false)],
+        );
+    }
 
-#[test]
-fn test_case_without_else() {
-    check_select_types(
-        "SELECT CASE WHEN id > 10 THEN 'big' END FROM users",
-        vec![t(BaseType::Text, true)], // if fails to find, ELSE implictily becomes NULL
-    );
-}
+    #[test]
+    fn test_case_without_else() {
+        check_select_types(
+            "SELECT CASE WHEN id > 10 THEN 'big' END FROM users",
+            vec![t(BaseType::Text, true)],
+        );
+    }
 
-#[test]
-fn test_nested_case() {
-    check_select_types(
-        "SELECT CASE
+    #[test]
+    fn test_nested_case() {
+        check_select_types(
+            "SELECT CASE
             WHEN age > 18 THEN
                 CASE WHEN costs > 100 THEN 'rich adult' ELSE 'adult' END
             ELSE 'young'
          END FROM users",
-        vec![t(BaseType::Text, false)],
-    );
-}
+            vec![t(BaseType::Text, false)],
+        );
+    }
 
-#[test]
-fn test_in_with_subquery() {
-    check_select_types(
-        "SELECT name FROM users WHERE id IN (SELECT user_id FROM orders WHERE total > 100)",
-        vec![t(BaseType::Text, false)],
-    );
-}
+    #[test]
+    fn test_in_with_subquery() {
+        check_select_types(
+            "SELECT name FROM users WHERE id IN (SELECT user_id FROM orders WHERE total > 100)",
+            vec![t(BaseType::Text, false)],
+        );
+    }
 
-#[test]
-fn test_not_in() {
-    check_select_types(
-        "SELECT name FROM users WHERE id NOT IN (?, ?, ?)",
-        vec![t(BaseType::Text, false)],
-    );
-}
+    #[test]
+    fn test_not_in() {
+        check_select_types(
+            "SELECT name FROM users WHERE id NOT IN (?, ?, ?)",
+            vec![t(BaseType::Text, false)],
+        );
+    }
 
-#[test]
-fn test_multiple_joins() {
-    check_select_types(
-        "SELECT u.name, o.total, p.price
+    #[test]
+    fn test_multiple_joins() {
+        check_select_types(
+            "SELECT u.name, o.total, p.price
          FROM users u
          JOIN orders o ON u.id = o.user_id
          JOIN products p ON o.order_id = p.product_id",
-        vec![
-            t(BaseType::Text, false),
-            t(BaseType::Real, false),
-            t(BaseType::Real, false),
-        ],
-    );
-}
+            vec![
+                t(BaseType::Text, false),
+                t(BaseType::Real, false),
+                t(BaseType::Real, false),
+            ],
+        );
+    }
 
-#[test]
-fn test_mixed_join_types() {
-    check_select_types(
-        "SELECT u.name, o.total, p.description
+    #[test]
+    fn test_mixed_join_types() {
+        check_select_types(
+            "SELECT u.name, o.total, p.description
          FROM users u
          JOIN orders o ON u.id = o.user_id
          LEFT JOIN products p ON o.order_id = p.product_id",
-        vec![
-            t(BaseType::Text, false),
-            t(BaseType::Real, false),
-            t(BaseType::Text, true),
-        ],
-    );
-}
+            vec![
+                t(BaseType::Text, false),
+                t(BaseType::Real, false),
+                t(BaseType::Text, true),
+            ],
+        );
+    }
 
-#[test]
-fn test_right_join_nullability() {
-    check_select_types(
-        "SELECT users.name, orders.total
+    #[test]
+    fn test_right_join_nullability() {
+        check_select_types(
+            "SELECT users.name, orders.total
          FROM users
          RIGHT JOIN orders ON users.id = orders.user_id",
-        vec![t(BaseType::Text, true), t(BaseType::Real, false)],
-    );
-}
+            vec![t(BaseType::Text, true), t(BaseType::Real, false)],
+        );
+    }
 
-#[test]
-fn test_full_outer_join_nullability() {
-    check_select_types(
-        "SELECT users.name, orders.total
+    #[test]
+    fn test_full_outer_join_nullability() {
+        check_select_types(
+            "SELECT users.name, orders.total
          FROM users
          FULL OUTER JOIN orders ON users.id = orders.user_id",
-        vec![t(BaseType::Text, true), t(BaseType::Real, true)],
-    );
-}
+            vec![t(BaseType::Text, true), t(BaseType::Real, true)],
+        );
+    }
 
-#[test]
-fn test_self_join() {
-    check_select_types(
-        "SELECT u1.name, u2.name FROM users u1 JOIN users u2 ON u1.id = u2.id + 1",
-        vec![t(BaseType::Text, false), t(BaseType::Text, false)],
-    );
-}
+    #[test]
+    fn test_self_join() {
+        check_select_types(
+            "SELECT u1.name, u2.name FROM users u1 JOIN users u2 ON u1.id = u2.id + 1",
+            vec![t(BaseType::Text, false), t(BaseType::Text, false)],
+        );
+    }
 
-#[test]
-fn test_union_all() {
-    check_select_types(
-        "SELECT id FROM users UNION ALL SELECT stock FROM products",
-        vec![t(BaseType::Integer, true)],
-    );
-}
+    #[test]
+    fn test_union_all() {
+        check_select_types(
+            "SELECT id FROM users UNION ALL SELECT stock FROM products",
+            vec![t(BaseType::Integer, true)],
+        );
+    }
 
-#[test]
-fn test_intersect() {
-    check_select_types(
-        "SELECT id FROM users INTERSECT SELECT user_id FROM orders",
-        vec![t(BaseType::Integer, false)],
-    );
-}
+    #[test]
+    fn test_intersect() {
+        check_select_types(
+            "SELECT id FROM users INTERSECT SELECT user_id FROM orders",
+            vec![t(BaseType::Integer, false)],
+        );
+    }
 
-#[test]
-fn test_multiple_set_operations() {
-    check_select_types(
-        "SELECT id FROM users UNION SELECT user_id FROM orders EXCEPT SELECT product_id FROM products",
-        vec![t(BaseType::Integer, false)],
-    );
-}
+    #[test]
+    fn test_multiple_set_operations() {
+        check_select_types(
+            "SELECT id FROM users UNION SELECT user_id FROM orders EXCEPT SELECT product_id FROM products",
+            vec![t(BaseType::Integer, false)],
+        );
+    }
 
-#[test]
-fn test_coalesce_with_multiple_args() {
-    check_select_types(
-        "SELECT COALESCE(costs, age, 0) FROM users",
-        vec![t(BaseType::Real, false)],
-    );
-}
+    #[test]
+    fn test_coalesce_with_multiple_args() {
+        check_select_types(
+            "SELECT COALESCE(costs, age, 0) FROM users",
+            vec![t(BaseType::Real, false)],
+        );
+    }
 
-#[test]
-fn test_coalesce_all_nullable() {
-    check_select_types(
-        "SELECT COALESCE(costs, stock) FROM users, products",
-        vec![t(BaseType::Real, true)],
-    );
-}
+    #[test]
+    fn test_coalesce_all_nullable() {
+        check_select_types(
+            "SELECT COALESCE(costs, stock) FROM users, products",
+            vec![t(BaseType::Real, true)],
+        );
+    }
 
-#[test]
-fn test_ifnull() {
-    check_select_types(
-        "SELECT IFNULL(costs, 0.0) FROM users",
-        vec![t(BaseType::Real, false)],
-    );
-}
+    #[test]
+    fn test_ifnull() {
+        check_select_types(
+            "SELECT IFNULL(costs, 0.0) FROM users",
+            vec![t(BaseType::Real, false)],
+        );
+    }
 
-#[test]
-fn test_nested_subquery_in_select() {
-    check_select_types(
-        "SELECT name, (SELECT AVG(total) FROM orders WHERE user_id = (SELECT id FROM users LIMIT 1)) FROM users",
-        vec![t(BaseType::Text, false), t(BaseType::Real, true)],
-    );
-}
+    #[test]
+    fn test_nested_subquery_in_select() {
+        check_select_types(
+            "SELECT name, (SELECT AVG(total) FROM orders WHERE user_id = (SELECT id FROM users LIMIT 1)) FROM users",
+            vec![t(BaseType::Text, false), t(BaseType::Real, true)],
+        );
+    }
 
-#[test]
-fn test_correlated_subquery_2() {
-    check_select_types(
-        "SELECT name FROM users u WHERE EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id)",
-        vec![t(BaseType::Text, false)],
-    );
-}
+    #[test]
+    fn test_correlated_subquery_2() {
+        check_select_types(
+            "SELECT name FROM users u WHERE EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id)",
+            vec![t(BaseType::Text, false)],
+        );
+    }
 
-#[test]
-fn test_multiple_ctes_referencing_each_other() {
-    check_select_types(
-        "WITH
+    #[test]
+    fn test_multiple_ctes_referencing_each_other() {
+        check_select_types(
+            "WITH
          user_costs AS (SELECT id, costs FROM users WHERE costs > 0),
          high_spenders AS (SELECT id FROM user_costs WHERE costs > 100),
          names AS (SELECT name FROM users WHERE id IN (SELECT id FROM high_spenders))
          SELECT name FROM names",
-        vec![t(BaseType::Text, false)],
-    );
-}
+            vec![t(BaseType::Text, false)],
+        );
+    }
 
-#[test]
-fn test_window_function_with_frame() {
-    check_select_types(
-        "SELECT AVG(total) OVER (ORDER BY order_id ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM orders",
-        vec![t(BaseType::Real, true)],
-    );
-}
+    #[test]
+    fn test_window_function_with_frame() {
+        check_select_types(
+            "SELECT AVG(total) OVER (ORDER BY order_id ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM orders",
+            vec![t(BaseType::Real, true)],
+        );
+    }
 
-#[test]
-fn test_rank_window_functions() {
-    check_select_types(
-        "SELECT RANK() OVER (ORDER BY total), DENSE_RANK() OVER (ORDER BY total) FROM orders",
-        vec![t(BaseType::Integer, false), t(BaseType::Integer, false)],
-    );
-}
+    #[test]
+    fn test_rank_window_functions() {
+        check_select_types(
+            "SELECT RANK() OVER (ORDER BY total), DENSE_RANK() OVER (ORDER BY total) FROM orders",
+            vec![t(BaseType::Integer, false), t(BaseType::Integer, false)],
+        );
+    }
 
-#[test]
-fn test_multiple_window_functions() {
-    check_select_types(
-        "SELECT
+    #[test]
+    fn test_multiple_window_functions() {
+        check_select_types(
+            "SELECT
             ROW_NUMBER() OVER (ORDER BY id),
             SUM(costs) OVER (PARTITION BY age),
             name
          FROM users",
-        vec![
-            t(BaseType::Integer, false),
-            t(BaseType::Real, true),
-            t(BaseType::Text, false),
-        ],
-    );
-}
+            vec![
+                t(BaseType::Integer, false),
+                t(BaseType::Real, true),
+                t(BaseType::Text, false),
+            ],
+        );
+    }
 
-#[test]
-fn test_date_functions() {
-    check_select_types(
-        "SELECT DATE(created_at), TIME(created_at), DATETIME(created_at) FROM orders",
-        vec![
-            t(BaseType::Text, true),
-            t(BaseType::Text, true),
-            t(BaseType::Text, true),
-        ],
-    );
-}
+    #[test]
+    fn test_date_functions() {
+        check_select_types(
+            "SELECT DATE(created_at), TIME(created_at), DATETIME(created_at) FROM orders",
+            vec![
+                t(BaseType::Text, true),
+                t(BaseType::Text, true),
+                t(BaseType::Text, true),
+            ],
+        );
+    }
 
-#[test]
-fn test_round_function() {
-    check_select_types(
-        "SELECT ROUND(costs, 2), ROUND(price) FROM users, products",
-        vec![t(BaseType::Real, true), t(BaseType::Real, false)],
-    );
-}
+    #[test]
+    fn test_round_function() {
+        check_select_types(
+            "SELECT ROUND(costs, 2), ROUND(price) FROM users, products",
+            vec![t(BaseType::Real, true), t(BaseType::Real, false)],
+        );
+    }
 
-// #[test]
-// fn test_typeof_function() {
-//     check_select_types(
-//         "SELECT TYPEOF(costs) FROM users",
-//         vec![t(BaseType::Text, true)],
-//     );
-// }
+    #[test]
+    fn test_complex_expression_with_parens() {
+        check_select_types(
+            "SELECT ((costs + 10) * 2) / (age + 1) FROM users",
+            vec![t(BaseType::Real, true)],
+        );
+    }
 
-#[test]
-fn test_complex_expression_with_parens() {
-    check_select_types(
-        "SELECT ((costs + 10) * 2) / (age + 1) FROM users",
-        vec![t(BaseType::Real, true)],
-    );
-}
+    #[test]
+    fn test_modulo_operator() {
+        check_select_types(
+            "SELECT id % 10 FROM users",
+            vec![t(BaseType::Integer, true)],
+        );
+    }
 
-#[test]
-fn test_modulo_operator() {
-    check_select_types(
-        "SELECT id % 10 FROM users",
-        vec![t(BaseType::Integer, true)], // division or modulo has possibilty of null due to 0
-    );
-}
+    #[test]
+    fn test_negative_numbers() {
+        check_select_types(
+            "SELECT -costs, -age FROM users",
+            vec![t(BaseType::Real, true), t(BaseType::Integer, true)],
+        );
+    }
 
-#[test]
-fn test_negative_numbers() {
-    check_select_types(
-        "SELECT -costs, -age FROM users",
-        vec![t(BaseType::Real, true), t(BaseType::Integer, true)],
-    );
-}
+    #[test]
+    fn test_unary_plus() {
+        check_select_types("SELECT +id FROM users", vec![t(BaseType::Integer, false)]);
+    }
 
-#[test]
-fn test_unary_plus() {
-    check_select_types(
-        "SELECT +id FROM users",
-        vec![t(BaseType::Integer, false)],
-    );
-}
+    #[test]
+    fn test_concat_with_null() {
+        check_select_types(
+            "SELECT name || description FROM users, products",
+            vec![t(BaseType::Text, true)],
+        );
+    }
 
-#[test]
-fn test_concat_with_null() {
-    check_select_types(
-        "SELECT name || description FROM users, products",
-        vec![t(BaseType::Text, true)],
-    );
-}
+    #[test]
+    fn test_empty_string_literal() {
+        check_select_types("SELECT '' FROM users", vec![t(BaseType::Text, false)]);
+    }
 
-#[test]
-fn test_empty_string_literal() {
-    check_select_types(
-        "SELECT '' FROM users",
-        vec![t(BaseType::Text, false)],
-    );
-}
+    #[test]
+    fn test_null_literal() {
+        check_select_types("SELECT NULL FROM users", vec![t(BaseType::Null, true)]);
+    }
 
-#[test]
-fn test_null_literal() {
-    check_select_types(
-        "SELECT NULL FROM users",
-        vec![t(BaseType::Null, true)],
-    );
-}
+    #[test]
+    fn test_trim_functions() {
+        check_select_types(
+            "SELECT TRIM(name), LTRIM(name), RTRIM(name) FROM users",
+            vec![
+                t(BaseType::Text, false),
+                t(BaseType::Text, false),
+                t(BaseType::Text, false),
+            ],
+        );
+    }
 
+    #[test]
+    fn test_replace_function() {
+        check_select_types(
+            "SELECT REPLACE(name, 'a', 'b') FROM users",
+            vec![t(BaseType::Text, false)],
+        );
+    }
 
+    #[test]
+    fn test_instr_function() {
+        check_select_types(
+            "SELECT INSTR(name, 'test') FROM users",
+            vec![t(BaseType::Integer, false)],
+        );
+    }
 
-#[test]
-fn test_trim_functions() {
-    check_select_types(
-        "SELECT TRIM(name), LTRIM(name), RTRIM(name) FROM users",
-        vec![
-            t(BaseType::Text, false),
-            t(BaseType::Text, false),
-            t(BaseType::Text, false),
-        ],
-    );
-}
+    #[test]
+    fn test_max_min_functions() {
+        check_select_types(
+            "SELECT MAX(costs, age), MIN(1.0, 100) FROM users",
+            vec![t(BaseType::Real, true), t(BaseType::Real, false)],
+        );
+    }
 
-#[test]
-fn test_replace_function() {
-    check_select_types(
-        "SELECT REPLACE(name, 'a', 'b') FROM users",
-        vec![t(BaseType::Text, false)],
-    );
-}
+    #[test]
+    fn test_zero_division_potential() {
+        check_select_types(
+            "SELECT total / 0.0 FROM orders",
+            vec![t(BaseType::Real, true)],
+        );
+    }
 
-#[test]
-fn test_instr_function() {
-    check_select_types(
-        "SELECT INSTR(name, 'test') FROM users",
-        vec![t(BaseType::Integer, false)],
-    );
-}
+    #[test]
+    fn test_bool_constraint_in_list() {
+        check_select_types(
+            "SELECT is_active FROM flags",
+            vec![t(BaseType::Bool, false)],
+        );
+    }
 
-#[test]
-fn test_max_min_functions() {
-    check_select_types(
-        "SELECT MAX(costs, age), MIN(1.0, 100) FROM users",
-        vec![t(BaseType::Real, true), t(BaseType::Real, false)],
-    );
-}
+    #[test]
+    fn test_bool_constraint_or_logic() {
+        check_select_types("SELECT is_admin FROM flags", vec![t(BaseType::Bool, true)]);
+    }
 
-#[test]
-fn test_zero_division_potential() {
-    // Should still infer Real even though this could error at runtime
-    check_select_types(
-        "SELECT total / 0.0 FROM orders",
-        vec![t(BaseType::Real, true)],
-    );
-}
+    #[test]
+    fn test_bool_constraint_robust_syntax() {
+        check_select_types(
+            "SELECT is_visible FROM flags",
+            vec![t(BaseType::Bool, false)],
+        );
+    }
 
+    #[test]
+    fn test_explicit_bool_keyword() {
+        check_select_types(
+            "SELECT manual_bool FROM flags",
+            vec![t(BaseType::Bool, true)],
+        );
+    }
+
+    #[test]
+    fn test_bool_inference_in_expressions() {
+        check_select_types(
+            "SELECT is_active AND is_visible FROM flags",
+            vec![t(BaseType::Bool, false)],
+        );
+    }
+
+    #[test]
+    fn test_bool_mixed_with_literals() {
+        check_select_types(
+            "SELECT is_admin = TRUE FROM flags",
+            vec![t(BaseType::Bool, true)],
+        );
+    }
 }
