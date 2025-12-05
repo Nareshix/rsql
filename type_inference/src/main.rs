@@ -4,6 +4,7 @@
 
 mod binding_patterns;
 mod expr;
+mod pg_type_cast_to_sqlite;
 mod select_patterns;
 mod table;
 // fn main() {
@@ -30,30 +31,31 @@ mod table;
 // }
 
 use crate::{
-    binding_patterns::get_type_of_binding_parameters,
-    table::create_tables,
+    binding_patterns::get_type_of_binding_parameters, select_patterns::get_types_from_select, table::create_tables
 };
 use std::collections::HashMap;
 
 fn main() {
     let mut all_tables = HashMap::new();
 
-    let sql = "CREATE TABLE users (id INTEGER, name TEXT, wow REAL)";
+    let sql = "CREATE TABLE users (id INTEGER, name TEXT, wow REAL);CREATE TABLE mom (id INTEGER NOT NULL, name TEXT NOT NULL, wow TEXT)";
     create_tables(sql, &mut all_tables);
 
-    let sql = "CREATE TABLE mom (id INTEGER NOT NULL, name TEXT NOT NULL, wow TEXT)";
-    create_tables(sql, &mut all_tables);
+    // let sql = "";
+    // create_tables(sql, &mut all_tables);
 
     // let sql = "Select 1 from users where wow in (?,?,?)";
 
     // let x = get_type_of_binding_parameters(sql, &all_tables);
     // println!("{:?}", x);
+    // println!("{onall_tables:#?}");
+    // let sql = "SELECT name FROM users, mom";
+    // let types = get_types_from_select(sql, &all_tables);
+    // println!("{:?}", types);
 
-    // Test cases for SQL parameter binding detection
-
-    let sql = "SELECT 1 FROM users AS u WHERE u.wow >= ?";
-    let x = get_type_of_binding_parameters(sql, &mut all_tables);
-    println!(" {:?}", x);
+    let sql = "SELECT (1, 2) > (1, 1); --";
+    let types = get_types_from_select(sql, &all_tables);
+    println!("{:?}", types);
 
     // let sql = "SELECT * FROM users WHERE id = ?";
     // let x = get_type_of_binding_parameters(sql, &all_tables).unwrap();
