@@ -88,7 +88,7 @@ pub fn get_type_of_binding_parameters(
             table,
             limit,
             from,
-            ..
+            or
         } => {
             let table_name = table.relation.to_string();
 
