@@ -320,10 +320,10 @@ fn traverse_expr(
 
         Expr::Value(val) => {
             if let sqlparser::ast::Value::Placeholder(_) = val.value {
-                let t = parent_hint.ok_or_else(|| err_from_expr(expr, "Unable to infer type"))?;
+                let t = parent_hint.ok_or_else(|| err_from_expr(expr, "Unable to infer type. Consider casting"))?;
 
                 if t.base_type == BaseType::PlaceHolder || t.base_type == BaseType::Unknowns {
-                    return Err(err_from_expr(expr, "Unable to infer type"));
+                    return Err(err_from_expr(expr, "Unable to infer type. Consider Casting"));
                 }
 
                 results.push(t);
@@ -647,7 +647,7 @@ fn traverse_expr(
             Ok(())
         }
 
-        Expr::Case {
+Expr::Case {
             operand,
             conditions,
             else_result,
@@ -688,6 +688,8 @@ fn traverse_expr(
                 None
             };
 
+            let case_span = expr.span();
+
             for cond in conditions {
                 let when_hint = operand_hint.clone().or(Some(Type {
                     base_type: BaseType::Bool,
@@ -701,27 +703,46 @@ fn traverse_expr(
                         e
                     })?;
 
-                traverse_expr(
+                if let Err(mut e) = traverse_expr(
                     &cond.result,
                     table_names,
                     all_tables,
-                    results,
+                results,
                     result_hint.clone(),
-                )
-                .map_err(|mut e| {
-                    e.message = format!("{} in 'THEN {}'", e.message, cond.result);
-                    e
-                })?;
+                ) {
+                    if result_hint.is_none() {
+                        e.start = case_span.start.into();
+                        e.end = case_span.end.into();
+
+                        let else_text = match else_result {
+                            Some(el) => format!(" ELSE {}", el),
+                            None => String::new(),
+                        };
+
+                        e.message = format!(
+                            "Unable to infer type in 'THEN {}{}. Consider casting'",
+                            cond.result, else_text
+                        );
+                    } else {
+                        e.message = format!("{} in 'THEN {} Consider casting'", e.message, cond.result);
+                    }
+                    return Err(e);
+                }
             }
 
-            if let Some(else_expr) = else_result {
-                traverse_expr(else_expr, table_names, all_tables, results, result_hint).map_err(
-                    |mut e| {
-                        e.message = format!("{} in 'ELSE {}'", e.message, else_expr);
-                        e
-                    },
-                )?;
-            }
+            if let Some(else_expr) = else_result
+                && let Err(mut e) =
+                    traverse_expr(else_expr, table_names, all_tables, results, result_hint.clone())
+                {
+                    if result_hint.is_none() {
+                        e.start = case_span.start.into();
+                        e.end = case_span.end.into();
+                        e.message = format!("Unable to infer type in 'ELSE {}. Consider casting'", else_expr);
+                    } else {
+                        e.message = format!("{} in 'ELSE {}. Consider Casting'", e.message, else_expr);
+                    }
+                    return Err(e);
+                }
 
             Ok(())
         }
