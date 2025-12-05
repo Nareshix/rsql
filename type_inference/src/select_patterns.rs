@@ -52,56 +52,7 @@ pub fn get_types_from_select(
     Ok(vec![])
 }
 
-fn resolve_cte_columns(
-    cte: &Cte,
-    context: &HashMap<String, Vec<ColumnInfo>>,
-) -> Result<Vec<ColumnInfo>, String> {
-    if let SetExpr::SetOperation { left, right, .. } = &*cte.query.body {
-        let anchor_cols = traverse_select_output(left, context)?;
 
-        let mut recursive_context = context.clone();
-        let cte_name = cte.alias.name.value.clone();
-        let mut context_anchor_cols = Vec::new();
-        for (i, col) in anchor_cols.iter().enumerate() {
-            let mut new_col = col.clone();
-            if let Some(alias) = cte.alias.columns.get(i) {
-                new_col.name = alias.name.value.clone();
-            }
-            context_anchor_cols.push(new_col);
-        }
-        recursive_context.insert(cte_name, context_anchor_cols);
-
-        let recursive_cols = traverse_select_output(right, &recursive_context)?;
-
-        // zip the anchor columns with the recursive columns.
-        // If lengths differ, zip stops at the shorter one (standard SQL behavior usually implies they match).
-        let merged_cols = anchor_cols
-            .into_iter()
-            .zip(recursive_cols)
-            .map(|(mut l_col, r_col)| {
-                if r_col.data_type.nullable {
-                    l_col.data_type.nullable = true;
-                }
-
-                //  Numeric Types promotion (Int + Real => Real)
-                let l_base = l_col.data_type.base_type;
-                let r_base = r_col.data_type.base_type;
-
-                if (l_base == BaseType::Integer && r_base == BaseType::Real)
-                    || (l_base == BaseType::Real && r_base == BaseType::Integer)
-                {
-                    l_col.data_type.base_type = BaseType::Real;
-                }
-
-                l_col
-            })
-            .collect();
-        Ok(merged_cols)
-    } else {
-        // Standard CTE
-        traverse_select_output(&cte.query.body, context)
-    }
-}
 pub fn traverse_select_output(
     body: &SetExpr,
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
@@ -270,6 +221,57 @@ pub fn traverse_select_output(
         SetExpr::Query(q) => traverse_select_output(&q.body, all_tables),
 
         _ => Ok(vec![]),
+    }
+}
+
+fn resolve_cte_columns(
+    cte: &Cte,
+    context: &HashMap<String, Vec<ColumnInfo>>,
+) -> Result<Vec<ColumnInfo>, String> {
+    if let SetExpr::SetOperation { left, right, .. } = &*cte.query.body {
+        let anchor_cols = traverse_select_output(left, context)?;
+
+        let mut recursive_context = context.clone();
+        let cte_name = cte.alias.name.value.clone();
+        let mut context_anchor_cols = Vec::new();
+        for (i, col) in anchor_cols.iter().enumerate() {
+            let mut new_col = col.clone();
+            if let Some(alias) = cte.alias.columns.get(i) {
+                new_col.name = alias.name.value.clone();
+            }
+            context_anchor_cols.push(new_col);
+        }
+        recursive_context.insert(cte_name, context_anchor_cols);
+
+        let recursive_cols = traverse_select_output(right, &recursive_context)?;
+
+        // zip the anchor columns with the recursive columns.
+        // If lengths differ, zip stops at the shorter one (standard SQL behavior usually implies they match).
+        let merged_cols = anchor_cols
+            .into_iter()
+            .zip(recursive_cols)
+            .map(|(mut l_col, r_col)| {
+                if r_col.data_type.nullable {
+                    l_col.data_type.nullable = true;
+                }
+
+                //  Numeric Types promotion (Int + Real => Real)
+                let l_base = l_col.data_type.base_type;
+                let r_base = r_col.data_type.base_type;
+
+                if (l_base == BaseType::Integer && r_base == BaseType::Real)
+                    || (l_base == BaseType::Real && r_base == BaseType::Integer)
+                {
+                    l_col.data_type.base_type = BaseType::Real;
+                }
+
+                l_col
+            })
+            .collect();
+        Ok(merged_cols)
+    } else {
+        // Standard CTE
+        traverse_select_output(&cte.query.body, context)
     }
 }
 
