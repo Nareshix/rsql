@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use sqlparser::ast::{
-    BinaryOperator, DataType, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, Value,
+    BinaryOperator, DataType, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, Ident, Value,
 };
 
 use crate::{select_patterns::traverse_select_output, table::ColumnInfo};
@@ -23,6 +23,14 @@ pub struct Type {
     pub contains_placeholder: bool,
 }
 
+pub fn identifiers_match(definition_name: &str, usage: &Ident) -> bool {
+    if usage.quote_style.is_some() {
+        definition_name == usage.value
+    } else {
+        definition_name.eq_ignore_ascii_case(&usage.value)
+    }
+}
+
 /// https://docs.rs/sqlparser/latest/sqlparser/ast/enum.Expr.html, version 0.59.0
 pub fn evaluate_expr_type(
     expr: &Expr,
@@ -37,13 +45,10 @@ pub fn evaluate_expr_type(
             for table_name in table_names_from_select {
                 if let Some(column_infos) = all_tables.get(table_name) {
                     for column_info in column_infos {
-                        if column_info.name == *col_name {
-                            // Check if we already found a match previously
+                        // chceks for case sensitivity
+                        if identifiers_match(&column_info.name, ident) {
                             if found_type.is_some() {
-                                return Err(format!(
-                                    "Ambiguous column name '{}': It exists in multiple tables {:?}",
-                                    col_name, table_names_from_select
-                                ));
+                                return Err(format!("Ambiguous column name '{}'", ident.value));
                             }
                             found_type = Some(column_info.data_type.clone());
                         }
@@ -51,7 +56,6 @@ pub fn evaluate_expr_type(
                 }
             }
 
-            // Return the found type, or error if None found
             found_type.ok_or_else(|| {
                 format!(
                     "Column '{}' not found in tables {:?}",
@@ -61,20 +65,29 @@ pub fn evaluate_expr_type(
         }
 
         Expr::CompoundIdentifier(idents) => {
-            // We expect 2 parts, e.g., "table.column"
-            let table_name = &idents[0].value;
-            let col_name = &idents[1].value;
+            // We expect "table.column"
+            let table_ident = &idents[0];
+            let col_ident = &idents[1];
 
-            let column_infos = &all_tables[table_name];
+            // table keys in HashMap are stored lowercase
+            let table_lookup_key = if table_ident.quote_style.is_some() {
+                table_ident.value.clone()
+            } else {
+                table_ident.value.to_lowercase()
+            };
+
+            let column_infos = all_tables.get(&table_lookup_key).ok_or_else(||
+                format!("Table '{}' not found", table_ident.value)
+            )?;
+
             for column_info in column_infos {
-                if column_info.name == *col_name {
+                // FIX: Use helper for column comparison
+                if identifiers_match(&column_info.name, col_ident) {
                     return Ok(column_info.data_type.clone());
                 }
             }
-            Err(format!(
-                "Column '{}' not found in table '{}'",
-                col_name, table_name
-            ))
+
+            Err(format!("Column '{}' not found in table '{}'", col_ident.value, table_ident.value))
         }
 
         // Expr::CompoundFieldAccess {..}
@@ -85,7 +98,6 @@ pub fn evaluate_expr_type(
         // Expr::Rollup() TODO
         // Expr::Tuple(_) TODO
         // Expr::Struct { _ }
-        // Expr::Array() sqlite dont have array type
         // Expr::Wildcard() --handled in select_pattern.rs
         // Expr::QualifiedWildcard(, ) --handled in select_pattern.rs
         // Expr::OuterJoin() --handled in creation of table
@@ -587,7 +599,6 @@ pub fn evaluate_expr_type(
                     nullable: false,
                     contains_placeholder: false,
                 }),
-
 
                 "MIN" | "MAX" => {
                     let arg_count = if let FunctionArguments::List(list) = &func.args {

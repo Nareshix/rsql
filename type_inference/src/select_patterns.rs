@@ -1,7 +1,7 @@
 use sqlparser::{
     ast::{
-        Cte, Expr, JoinOperator, SelectItem, SelectItemQualifiedWildcardKind, SetExpr, SetOperator,
-        Statement, TableFactor,
+        Cte, Expr, JoinOperator, ObjectNamePart, SelectItem, SelectItemQualifiedWildcardKind,
+        SetExpr, SetOperator, Statement, TableFactor,
     },
     dialect::SQLiteDialect,
     parser::Parser,
@@ -45,7 +45,7 @@ pub fn get_types_from_select(
                     });
                 }
 
-                context_tables.insert(cte_name, final_cols);
+                context_tables.insert(cte_name.to_lowercase(), final_cols);
             }
         }
 
@@ -277,29 +277,33 @@ fn resolve_table_factor(
 ) -> Result<(), String> {
     match relation {
         TableFactor::Table { name, alias, .. } => {
-            let real_name =
-                if let Some(sqlparser::ast::ObjectNamePart::Identifier(ident)) = name.0.last() {
-                    ident.value.clone()
-                } else {
-                    name.to_string()
-                };
-
-            let target_alias = if let Some(alias_node) = alias {
-                alias_node.name.value.clone()
-            } else {
-                real_name.clone()
+            let ObjectNamePart::Identifier(table_ident) = name.0.last().unwrap() else {
+                panic!("Last part of name is not an identifier");
             };
 
-            if let Some(cols) = all_tables.get(&real_name) {
+            // If unquoted, look it up as lowercase. If quoted, strict.
+            let lookup_name = if table_ident.quote_style.is_some() {
+                table_ident.value.clone()
+            } else {
+                table_ident.value.to_lowercase()
+            };
+
+            let target_alias = if let Some(alias_node) = alias {
+                alias_node.name.value.clone() // Aliases are case-insensitive references usually
+            } else {
+                lookup_name.clone()
+            };
+
+            if let Some(cols) = all_tables.get(&lookup_name) {
                 let mut cols = cols.clone();
                 if force_nullable {
                     for c in &mut cols {
                         c.data_type.nullable = true;
                     }
                 }
-                working_tables.insert(target_alias.clone(), cols);
+                working_tables.insert(target_alias.to_lowercase(), cols.clone());
+                local_scope_tables.push(target_alias.to_lowercase());
             }
-            local_scope_tables.push(target_alias);
         }
 
         TableFactor::Derived {

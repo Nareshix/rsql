@@ -33,7 +33,6 @@ fn is_boolean_constraint(expr: &Expr) -> bool {
             op: BinaryOperator::Or,
             right,
         } => {
-
             let is_eq_check = |op_expr: &Expr, target_val: &str| -> bool {
                 let inner = if let Expr::Nested(n) = op_expr {
                     n
@@ -148,7 +147,7 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
                 })
                 .collect();
 
-            tables.insert(table_name, table_columns);
+            tables.insert(table_name.to_lowercase(), table_columns);
         }
     }
 }
