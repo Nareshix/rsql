@@ -1,5 +1,6 @@
 use type_inference::select_patterns::get_types_from_select;
 use type_inference::*;
+use pretty_assertions::{assert_eq};
 
 use crate::{
     expr::BaseType,
@@ -48,7 +49,7 @@ fn setup_tables() -> HashMap<String, Vec<ColumnInfo>> {
 fn check_select_types(sql: &str, expected: Vec<ColumnType>) {
     let tables = setup_tables();
 
-    let internal_types = get_types_from_select(sql, &tables).unwrap();
+    let internal_types: Vec<_> = get_types_from_select(sql, &tables).unwrap().into_iter().map(|c| c.data_type).collect();
 
     let select_types: Vec<ColumnType> = internal_types
         .into_iter()
@@ -242,6 +243,20 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_explicit_cast_binding_pg() {
+        check_select_types("SELECT ?::TEXT", vec![t(BaseType::Text, true)]);
+    }
+
+    #[test]
+    fn test_explicit_cast_output_pg() {
+        check_select_types("SELECT age::REAL FROM users", vec![t(BaseType::Real, true)]);
+    }
+
+    #[test]
+    fn test_explicit_cast_output_not_null_pg() {
+        check_select_types("SELECT id::REAL FROM users", vec![t(BaseType::Real, false)]);
+    }
     #[test]
     fn test_join_column_resolution() {
         check_select_types(
