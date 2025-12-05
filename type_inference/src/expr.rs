@@ -39,31 +39,23 @@ pub fn evaluate_expr_type(
 ) -> Result<Type, String> {
     match expr {
         Expr::Identifier(ident) => {
-            let col_name = &ident.value;
-            let mut found_type: Option<Type> = None;
+            let matches: Vec<&Type> = table_names_from_select
+                .iter()
+                .filter_map(|table_name| all_tables.get(table_name)) // Get columns for table
+                .flat_map(|cols| cols.iter()) // Flatten Vec<Vec<Col>> into iterator of Cols
+                .filter(|col_info| identifiers_match(&col_info.name, ident)) // Find matches
+                .map(|col_info| &col_info.data_type)
+                .collect();
 
-            for table_name in table_names_from_select {
-                if let Some(column_infos) = all_tables.get(table_name) {
-                    for column_info in column_infos {
-                        // chceks for case sensitivity
-                        if identifiers_match(&column_info.name, ident) {
-                            if found_type.is_some() {
-                                return Err(format!("Ambiguous column name '{}'", ident.value));
-                            }
-                            found_type = Some(column_info.data_type.clone());
-                        }
-                    }
-                }
-            }
-
-            found_type.ok_or_else(|| {
-                format!(
+            match matches.len() {
+                0 => Err(format!(
                     "Column '{}' not found in tables {:?}",
-                    col_name, table_names_from_select
-                )
-            })
+                    ident.value, table_names_from_select
+                )),
+                1 => Ok(matches[0].clone()),
+                _ => Err(format!("Ambiguous column name '{}'", ident.value)),
+            }
         }
-
         Expr::CompoundIdentifier(idents) => {
             // We expect "table.column"
             let table_ident = &idents[0];
@@ -76,18 +68,20 @@ pub fn evaluate_expr_type(
                 table_ident.value.to_lowercase()
             };
 
-            let column_infos = all_tables.get(&table_lookup_key).ok_or_else(||
-                format!("Table '{}' not found", table_ident.value)
-            )?;
+            let column_infos = all_tables
+                .get(&table_lookup_key)
+                .ok_or_else(|| format!("Table '{}' not found", table_ident.value))?;
 
-            for column_info in column_infos {
-                // FIX: Use helper for column comparison
-                if identifiers_match(&column_info.name, col_ident) {
-                    return Ok(column_info.data_type.clone());
-                }
-            }
-
-            Err(format!("Column '{}' not found in table '{}'", col_ident.value, table_ident.value))
+            column_infos
+                .iter()
+                .find(|c| identifiers_match(&c.name, col_ident))
+                .map(|c| c.data_type.clone())
+                .ok_or_else(|| {
+                    format!(
+                        "Column '{}' not found in table '{}'",
+                        col_ident.value, table_ident.value
+                    )
+                })
         }
 
         // Expr::CompoundFieldAccess {..}
@@ -796,27 +790,21 @@ pub fn evaluate_expr_type(
             })
         }
 
-        // TODO not too sure whether correct his part was geenrated by ai. pls come and check again.
         Expr::Case {
             conditions,
             else_result,
             ..
         } => {
-            // FIX: Initialize nullable to false. We only flip it to true if necessary.
             let mut output_type = Type {
                 base_type: BaseType::Null,
                 nullable: false,
                 contains_placeholder: false,
             };
 
-            let mut result_types = Vec::new();
-            for cond in conditions {
-                result_types.push(evaluate_expr_type(
-                    &cond.result,
-                    table_names_from_select,
-                    all_tables,
-                )?);
-            }
+            let mut result_types = conditions
+                .iter()
+                .map(|c| evaluate_expr_type(&c.result, table_names_from_select, all_tables))
+                .collect::<Result<Vec<_>, _>>()?;
 
             if let Some(else_expr) = else_result {
                 result_types.push(evaluate_expr_type(
@@ -833,7 +821,6 @@ pub fn evaluate_expr_type(
                     output_type.nullable = true;
                 }
 
-                // Logic to merge BaseTypes
                 if output_type.base_type == BaseType::Null {
                     output_type.base_type = t.base_type;
                 } else if t.base_type != BaseType::Null && output_type.base_type != t.base_type {

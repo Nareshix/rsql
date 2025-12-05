@@ -30,20 +30,17 @@ pub fn get_types_from_select(
 
                 let inferred_cols = resolve_cte_columns(cte, &context_tables)?;
 
-                let mut final_cols = Vec::new();
-                for (i, inferred_col) in inferred_cols.into_iter().enumerate() {
-                    let name = if let Some(alias) = cte.alias.columns.get(i) {
-                        alias.name.value.clone()
-                    } else {
-                        inferred_col.name
-                    };
-
-                    final_cols.push(ColumnInfo {
-                        name,
-                        data_type: inferred_col.data_type,
-                        check_constraint: None,
-                    });
-                }
+                let final_cols = inferred_cols
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, mut col)| {
+                        // If an explicit alias exists at this index, overwrite the name
+                        if let Some(alias) = cte.alias.columns.get(i) {
+                            col.name = alias.name.value.clone();
+                        }
+                        col
+                    })
+                    .collect();
 
                 context_tables.insert(cte_name.to_lowercase(), final_cols);
             }
@@ -76,21 +73,29 @@ fn resolve_cte_columns(
 
         let recursive_cols = traverse_select_output(right, &recursive_context)?;
 
-        let mut merged_cols = Vec::new();
-        for (i, l_col) in anchor_cols.iter().enumerate() {
-            let mut final_col = l_col.clone();
-            if let Some(r_col) = recursive_cols.get(i) {
+        // zip the anchor columns with the recursive columns.
+        // If lengths differ, zip stops at the shorter one (standard SQL behavior usually implies they match).
+        let merged_cols = anchor_cols
+            .into_iter()
+            .zip(recursive_cols)
+            .map(|(mut l_col, r_col)| {
                 if r_col.data_type.nullable {
-                    final_col.data_type.nullable = true;
+                    l_col.data_type.nullable = true;
                 }
-                if l_col.data_type.base_type == BaseType::Integer
-                    && r_col.data_type.base_type == BaseType::Real
+
+                //  Numeric Types promotion (Int + Real => Real)
+                let l_base = l_col.data_type.base_type;
+                let r_base = r_col.data_type.base_type;
+
+                if (l_base == BaseType::Integer && r_base == BaseType::Real)
+                    || (l_base == BaseType::Real && r_base == BaseType::Integer)
                 {
-                    final_col.data_type.base_type = BaseType::Real;
+                    l_col.data_type.base_type = BaseType::Real;
                 }
-            }
-            merged_cols.push(final_col);
-        }
+
+                l_col
+            })
+            .collect();
         Ok(merged_cols)
     } else {
         // Standard CTE
@@ -220,13 +225,12 @@ pub fn traverse_select_output(
             if matches!(op, SetOperator::Union) {
                 let right_cols = traverse_select_output(right, all_tables)?;
 
-                let mut merged_cols = Vec::new();
-                for (i, l_col) in left_cols.iter().enumerate() {
-                    let mut final_col = l_col.clone();
-
-                    if let Some(r_col) = right_cols.get(i) {
+                let merged_cols = left_cols
+                    .into_iter()
+                    .zip(right_cols)
+                    .map(|(mut l_col, r_col)| {
                         if r_col.data_type.nullable {
-                            final_col.data_type.nullable = true;
+                            l_col.data_type.nullable = true;
                         }
 
                         let l_base = l_col.data_type.base_type;
@@ -236,11 +240,12 @@ pub fn traverse_select_output(
                             && ((l_base == BaseType::Integer && r_base == BaseType::Real)
                                 || (l_base == BaseType::Real && r_base == BaseType::Integer))
                         {
-                            final_col.data_type.base_type = BaseType::Real;
+                            l_col.data_type.base_type = BaseType::Real;
                         }
-                    }
-                    merged_cols.push(final_col);
-                }
+                        l_col
+                    })
+                    .collect();
+
                 Ok(merged_cols)
             } else {
                 Ok(left_cols)

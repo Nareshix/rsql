@@ -118,30 +118,23 @@ pub fn get_type_of_binding_parameters(
                     }
                     sqlparser::ast::AssignmentTarget::Tuple(col_names) => {
                         if let sqlparser::ast::Expr::Tuple(values) = &assignment.value {
-                            for (i, name_obj) in col_names.iter().enumerate() {
-                                if let Some(val_expr) = values.get(i) {
-                                    let col_name = name_obj
-                                        .0
-                                        .last()
-                                        .map(|p| p.to_string())
-                                        .unwrap_or_default();
+                            // Zip pairs the two iterators together instantly
+                            for (name_obj, val_expr) in col_names.iter().zip(values.iter()) {
+                                let col_name =
+                                    name_obj.0.last().map(|p| p.to_string()).unwrap_or_default();
 
-                                    let mut hint = None;
-                                    if let Some(cols) = all_tables.get(&table_name)
-                                        && let Some(col_info) =
-                                            cols.iter().find(|c| c.name == col_name)
-                                    {
-                                        hint = Some(col_info.data_type.clone());
-                                    }
+                                let hint = all_tables
+                                    .get(&table_name)
+                                    .and_then(|cols| cols.iter().find(|c| c.name == col_name))
+                                    .map(|c| c.data_type.clone());
 
-                                    traverse_expr(
-                                        val_expr,
-                                        &table_names,
-                                        all_tables,
-                                        &mut results,
-                                        hint,
-                                    )?;
-                                }
+                                traverse_expr(
+                                    val_expr,
+                                    &table_names,
+                                    all_tables,
+                                    &mut results,
+                                    hint,
+                                )?;
                             }
                         } else {
                             traverse_expr(
@@ -270,10 +263,8 @@ pub fn get_type_of_binding_parameters(
                         hint,
                     )
                     .map_err(|mut e| {
-                        e.message = format!(
-                            "{} ON CONFLICT assignment to '{}'",
-                            e.message, col_name
-                        );
+                        e.message =
+                            format!("{} ON CONFLICT assignment to '{}'", e.message, col_name);
                         e
                     })?;
                 }
@@ -810,19 +801,22 @@ fn traverse_expr(
                     contains_placeholder: false,
                 })
             } else if is_polymorphic {
-                let mut found_sibling = None;
-                if let FunctionArguments::List(args_list) = &func.args {
-                    for arg in &args_list.args {
-                        if let FunctionArg::Unnamed(FunctionArgExpr::Expr(arg_expr)) = arg
-                            && let Ok(t) = evaluate_expr_type(arg_expr, table_names, all_tables)
-                            && t.base_type != BaseType::PlaceHolder
-                        {
-                            found_sibling = Some(t);
-                            break;
-                        }
-                    }
-                }
-                found_sibling.or(parent_hint)
+                let args = match &func.args {
+                    FunctionArguments::List(list) => &list.args,
+                    _ => &[][..], // Empty slice if no args
+                };
+
+                let sibling_hint = args.iter().find_map(|arg| {
+                    let FunctionArg::Unnamed(FunctionArgExpr::Expr(arg_expr)) = arg else {
+                        return None;
+                    };
+
+                    evaluate_expr_type(arg_expr, table_names, all_tables)
+                        .ok()
+                        .filter(|t| t.base_type != BaseType::PlaceHolder)
+                });
+
+                sibling_hint.or(parent_hint)
             } else {
                 None
             };
@@ -1230,8 +1224,6 @@ fn traverse_returning(
             match item {
                 // e.g. RETURNING col + ?
                 sqlparser::ast::SelectItem::UnnamedExpr(expr) => {
-                    //  pass None as the hint because the user is just asking for data back.
-                    // However, 'expr' will handle internal hints (e.g. col + ?)
                     traverse_expr(expr, table_names, all_tables, results, None)?;
                 }
                 // RETURNING col + ? AS new_val
