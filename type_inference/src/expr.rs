@@ -386,7 +386,7 @@ pub fn evaluate_expr_type(
 
                         _ => {
                             return Err(format!(
-                                "Cannot apply math operator to types '{:?}' and '{:?}'",
+                                r#"Unable to run ({left} {op} {right}). Cannot apply math operator to` types '{:?}' and '{:?}'"#,
                                 left_type.base_type, right_type.base_type
                             ));
                         }
