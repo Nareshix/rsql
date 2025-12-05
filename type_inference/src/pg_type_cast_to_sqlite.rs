@@ -44,6 +44,7 @@ pub fn pg_cast_syntax_to_sqlite(sql: &str) -> String {
     for &idx in cast_indices.iter().rev() {
         let mut rhs_end = idx + 2;
 
+        // Skip spaces after ::
         while rhs_end < chars.len() && chars[rhs_end].is_whitespace() {
             rhs_end += 1;
         }
@@ -66,6 +67,7 @@ pub fn pg_cast_syntax_to_sqlite(sql: &str) -> String {
 
         let mut lhs_start = idx;
 
+        // Skip spaces before ::
         while lhs_start > 0 && chars[lhs_start - 1].is_whitespace() {
             lhs_start -= 1;
         }
@@ -74,6 +76,7 @@ pub fn pg_cast_syntax_to_sqlite(sql: &str) -> String {
             let end_char = chars[lhs_start - 1];
 
             if end_char == ')' {
+                // If ending with ), balance parens backwards
                 let mut balance = 1;
                 lhs_start -= 1;
                 while lhs_start > 0 && balance > 0 {
@@ -85,23 +88,37 @@ pub fn pg_cast_syntax_to_sqlite(sql: &str) -> String {
                         balance -= 1;
                     }
                 }
-            } else if end_char == '\'' {
+            } else if end_char == '\'' || end_char == '"' {
+                // If ending with quote, find start of quote
+                let q = end_char;
                 lhs_start -= 1;
                 while lhs_start > 0 {
                     lhs_start -= 1;
-
-                    if chars[lhs_start] == '\'' && (lhs_start == 0 || chars[lhs_start - 1] != '\'')
-                    {
-                        break;
+                    // Check for matching quote that isn't escaped ('' or "")
+                    if chars[lhs_start] == q {
+                        if lhs_start > 0 && chars[lhs_start - 1] == q {
+                            lhs_start -= 1; // skip escaped quote
+                        } else {
+                            break; // found actual start
+                        }
                     }
                 }
             } else {
                 while lhs_start > 0 {
                     let c = chars[lhs_start - 1];
 
-                    if !c.is_alphanumeric() && c != '_' && c != '.' && c != '"' {
+                    if c.is_whitespace() {
                         break;
                     }
+
+                    if ",();".contains(c) {
+                        break;
+                    }
+
+                    if "+-*/=<>!^%".contains(c) {
+                        break;
+                    }
+
                     lhs_start -= 1;
                 }
             }
