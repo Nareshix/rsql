@@ -90,7 +90,6 @@ pub fn evaluate_expr_type(
         // Expr::GroupingSets() TODO
         // Expr::Cube() TODO
         // Expr::Rollup() TODO
-        // Expr::Tuple(_) TODO
         // Expr::Struct { _ }
         // Expr::Wildcard() --handled in select_pattern.rs
         // Expr::QualifiedWildcard(, ) --handled in select_pattern.rs
@@ -98,6 +97,18 @@ pub fn evaluate_expr_type(
         // Expr::Prior() TODO
         // Expr::MemberOf() json specifc TODO
         // Compound
+
+        Expr::Tuple(exprs) => {
+            if let Some(first) = exprs.first() {
+                evaluate_expr_type(first, table_names_from_select, all_tables)
+            } else {
+                Ok(Type {
+                    base_type: BaseType::Unknowns,
+                    nullable: false,
+                    contains_placeholder: false,
+                })
+            }
+        }
         Expr::Subquery(query) => match traverse_select_output(&query.body, all_tables) {
             Ok(columns) => {
                 if let Some(first_col) = columns.first() {
