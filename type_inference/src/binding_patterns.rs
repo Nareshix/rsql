@@ -87,6 +87,7 @@ pub fn get_type_of_binding_parameters(
             returning,
             table,
             limit,
+            from,
             ..
         } => {
             let table_name = table.relation.to_string();
@@ -166,17 +167,65 @@ pub fn get_type_of_binding_parameters(
             });
 
             if let Some(limit_expr) = limit {
-                traverse_expr(
-                    limit_expr,
-                    &table_names,
-                    all_tables,
-                    &mut results,
-                    int_hint,
-                )
-                .map_err(|mut e| {
-                    e.message = format!("{} in UPDATE LIMIT clause", e.message);
-                    e
-                })?;
+                traverse_expr(limit_expr, &table_names, all_tables, &mut results, int_hint)
+                    .map_err(|mut e| {
+                        e.message = format!("{} in UPDATE LIMIT clause", e.message);
+                        e
+                    })?;
+            }
+
+            if let Some(from_kind) = from {
+                let from_tables = match from_kind {
+                    sqlparser::ast::UpdateTableFromKind::BeforeSet(tables) => tables,
+                    sqlparser::ast::UpdateTableFromKind::AfterSet(tables) => tables,
+                };
+
+                for from_table in from_tables {
+                    match &from_table.relation {
+                        sqlparser::ast::TableFactor::TableFunction { expr, .. } => {
+                            traverse_expr(expr, &table_names, all_tables, &mut results, None)?;
+                        }
+                        sqlparser::ast::TableFactor::Derived { subquery, .. } => {
+                            traverse_query(subquery, &table_names, all_tables, &mut results)?;
+                        }
+                        _ => {}
+                    }
+
+                    for join in &from_table.joins {
+                        match &join.relation {
+                            sqlparser::ast::TableFactor::TableFunction { expr, .. } => {
+                                traverse_expr(expr, &table_names, all_tables, &mut results, None)?;
+                            }
+                            sqlparser::ast::TableFactor::Derived { subquery, .. } => {
+                                traverse_query(subquery, &table_names, all_tables, &mut results)?;
+                            }
+                            _ => {}
+                        }
+
+                        let constraint = match &join.join_operator {
+                            sqlparser::ast::JoinOperator::Inner(c)
+                            | sqlparser::ast::JoinOperator::LeftOuter(c)
+                            | sqlparser::ast::JoinOperator::RightOuter(c)
+                            | sqlparser::ast::JoinOperator::FullOuter(c) => Some(c),
+                            _ => None,
+                        };
+
+                        if let Some(sqlparser::ast::JoinConstraint::On(expr)) = constraint {
+                            traverse_expr(
+                                expr,
+                                &table_names,
+                                all_tables,
+                                &mut results,
+                                bool_hint.clone(),
+                            )
+                            .map_err(|mut e| {
+                                e.message =
+                                    format!("{} in UPDATE ... FROM join ON clause", e.message);
+                                e
+                            })?;
+                        }
+                    }
+                }
             }
 
             traverse_returning(returning, &table_names, all_tables, &mut results)?;
@@ -856,17 +905,42 @@ fn traverse_expr(
             };
 
             if let Some(window_type) = &func.over
-                && let sqlparser::ast::WindowType::WindowSpec(window_spec) = window_type
-            {
-                for expr in &window_spec.partition_by {
-                    traverse_expr(expr, table_names, all_tables, results, None)
-                        .map_err(err_mapper)?;
+                && let sqlparser::ast::WindowType::WindowSpec(window_spec) = window_type {
+                    for expr in &window_spec.partition_by {
+                        traverse_expr(expr, table_names, all_tables, results, None)
+                            .map_err(err_mapper)?;
+                    }
+
+                    for order in &window_spec.order_by {
+                        traverse_expr(&order.expr, table_names, all_tables, results, None)
+                            .map_err(err_mapper)?;
+                    }
+
+                    if let Some(window_frame) = &window_spec.window_frame {
+                        let int_hint = Some(Type {
+                            base_type: BaseType::Integer,
+                            nullable: false,
+                            contains_placeholder: false,
+                        });
+
+                        let mut check_bound = |bound: &sqlparser::ast::WindowFrameBound| -> Result<(), InferenceError> {
+                            match bound {
+                                sqlparser::ast::WindowFrameBound::Preceding(Some(bound_expr))
+                                | sqlparser::ast::WindowFrameBound::Following(Some(bound_expr)) => {
+                                    traverse_expr(bound_expr, table_names, all_tables, results, int_hint.clone())?;
+                                }
+                                _ => {}
+                            }
+                            Ok(())
+                        };
+
+                        check_bound(&window_frame.start_bound).map_err(err_mapper)?;
+
+                        if let Some(end_bound) = &window_frame.end_bound {
+                            check_bound(end_bound).map_err(err_mapper)?;
+                        }
+                    }
                 }
-                for order in &window_spec.order_by {
-                    traverse_expr(&order.expr, table_names, all_tables, results, None)
-                        .map_err(err_mapper)?;
-                }
-            }
 
             let arg_hint = if expects_text {
                 Some(Type {
