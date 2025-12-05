@@ -320,10 +320,14 @@ fn traverse_expr(
 
         Expr::Value(val) => {
             if let sqlparser::ast::Value::Placeholder(_) = val.value {
-                let t = parent_hint.ok_or_else(|| err_from_expr(expr, "Unable to infer type. Consider casting"))?;
+                let t = parent_hint
+                    .ok_or_else(|| err_from_expr(expr, "Unable to infer type. Consider casting"))?;
 
                 if t.base_type == BaseType::PlaceHolder || t.base_type == BaseType::Unknowns {
-                    return Err(err_from_expr(expr, "Unable to infer type. Consider Casting"));
+                    return Err(err_from_expr(
+                        expr,
+                        "Unable to infer type. Consider Casting",
+                    ));
                 }
 
                 results.push(t);
@@ -647,7 +651,7 @@ fn traverse_expr(
             Ok(())
         }
 
-Expr::Case {
+        Expr::Case {
             operand,
             conditions,
             else_result,
@@ -707,7 +711,7 @@ Expr::Case {
                     &cond.result,
                     table_names,
                     all_tables,
-                results,
+                    results,
                     result_hint.clone(),
                 ) {
                     if result_hint.is_none() {
@@ -724,25 +728,34 @@ Expr::Case {
                             cond.result, else_text
                         );
                     } else {
-                        e.message = format!("{} in 'THEN {} Consider casting'", e.message, cond.result);
+                        e.message =
+                            format!("{} in 'THEN {} Consider casting'", e.message, cond.result);
                     }
                     return Err(e);
                 }
             }
 
             if let Some(else_expr) = else_result
-                && let Err(mut e) =
-                    traverse_expr(else_expr, table_names, all_tables, results, result_hint.clone())
-                {
-                    if result_hint.is_none() {
-                        e.start = case_span.start.into();
-                        e.end = case_span.end.into();
-                        e.message = format!("Unable to infer type in 'ELSE {}. Consider casting'", else_expr);
-                    } else {
-                        e.message = format!("{} in 'ELSE {}. Consider Casting'", e.message, else_expr);
-                    }
-                    return Err(e);
+                && let Err(mut e) = traverse_expr(
+                    else_expr,
+                    table_names,
+                    all_tables,
+                    results,
+                    result_hint.clone(),
+                )
+            {
+                if result_hint.is_none() {
+                    e.start = case_span.start.into();
+                    e.end = case_span.end.into();
+                    e.message = format!(
+                        "Unable to infer type in 'ELSE {}. Consider casting'",
+                        else_expr
+                    );
+                } else {
+                    e.message = format!("{} in 'ELSE {}. Consider Casting'", e.message, else_expr);
                 }
+                return Err(e);
+            }
 
             Ok(())
         }
@@ -808,6 +821,30 @@ Expr::Case {
                     | "FIRST_VALUE"
                     | "LAST_VALUE"
             );
+
+            let parent_span = expr.span();
+            let err_mapper = |mut e: InferenceError| {
+                e.start = parent_span.start.into();
+                e.end = parent_span.end.into();
+                e.message = format!(
+                    "{} unable to infer expr in function {}. Consider casting.",
+                    e.message, name
+                );
+                e
+            };
+
+            if let Some(window_type) = &func.over
+                && let sqlparser::ast::WindowType::WindowSpec(window_spec) = window_type
+            {
+                for expr in &window_spec.partition_by {
+                    traverse_expr(expr, table_names, all_tables, results, None)
+                        .map_err(err_mapper)?;
+                }
+                for order in &window_spec.order_by {
+                    traverse_expr(&order.expr, table_names, all_tables, results, None)
+                        .map_err(err_mapper)?;
+                }
+            }
 
             let arg_hint = if expects_text {
                 Some(Type {
@@ -944,6 +981,7 @@ Expr::Case {
         _ => Ok(()),
     }
 }
+
 fn traverse_query(
     query: &sqlparser::ast::Query,
     table_names: &Vec<String>,
@@ -964,6 +1002,14 @@ fn traverse_query(
 
     traverse_set_expr(&query.body, table_names, &local_scope, results)?;
 
+    if let Some(order_by_struct) = &query.order_by
+        && let sqlparser::ast::OrderByKind::Expressions(exprs) = &order_by_struct.kind
+    {
+        for order_expr in exprs {
+            traverse_expr(&order_expr.expr, table_names, &local_scope, results, None)?;
+        }
+    }
+
     if let Some(limit_clause) = &query.limit_clause {
         let int_hint = Some(Type {
             base_type: BaseType::Integer,
@@ -976,7 +1022,7 @@ fn traverse_query(
                 traverse_expr(
                     limit_expr,
                     table_names,
-                    all_tables, // Limit doesn't need CTEs usually, but all_tables is safe
+                    all_tables,
                     results,
                     int_hint.clone(),
                 )?;
@@ -995,7 +1041,6 @@ fn traverse_query(
 
     Ok(())
 }
-
 fn infer_cte_columns(
     cte: &sqlparser::ast::Cte,
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
@@ -1077,7 +1122,6 @@ fn infer_cte_columns(
     }
     vec![]
 }
-
 #[allow(unused)]
 fn traverse_set_expr(
     set_expr: &sqlparser::ast::SetExpr,
@@ -1094,10 +1138,39 @@ fn traverse_set_expr(
     match set_expr {
         sqlparser::ast::SetExpr::Select(select) => {
             let mut local_scope_tables = Vec::new();
-
             let mut current_select_scope = all_tables.clone();
 
-            // Helper closure to register aliases
+            for table_with_joins in &select.from {
+                match &table_with_joins.relation {
+                    sqlparser::ast::TableFactor::TableFunction { expr, .. } => {
+                        traverse_expr(
+                            expr,
+                            &local_scope_tables,
+                            &current_select_scope,
+                            results,
+                            None,
+                        )?;
+                    }
+                    sqlparser::ast::TableFactor::Derived { subquery, .. } => {
+                        traverse_query(subquery, outer_scope, all_tables, results)?;
+                    }
+                    _ => {}
+                }
+
+                for join in &table_with_joins.joins {
+                    if let sqlparser::ast::TableFactor::TableFunction { expr, .. } = &join.relation
+                    {
+                        traverse_expr(
+                            expr,
+                            &local_scope_tables,
+                            &current_select_scope,
+                            results,
+                            None,
+                        )?;
+                    }
+                }
+            }
+
             let mut register_table = |relation: &sqlparser::ast::TableFactor| {
                 if let sqlparser::ast::TableFactor::Table { name, alias, .. } = relation {
                     let real_name = name.to_string();
@@ -1202,6 +1275,18 @@ fn traverse_set_expr(
                 local_scope_tables.push(virtual_alias_table);
             }
 
+            if let sqlparser::ast::GroupByExpr::Expressions(exprs, ..) = &select.group_by {
+                for expr in exprs {
+                    traverse_expr(
+                        expr,
+                        &local_scope_tables,
+                        &current_select_scope,
+                        results,
+                        None,
+                    )?;
+                }
+            }
+
             if let Some(having) = &select.having {
                 traverse_expr(
                     having,
@@ -1233,7 +1318,6 @@ fn traverse_set_expr(
     }
     Ok(())
 }
-
 fn traverse_returning(
     returning: &Option<Vec<sqlparser::ast::SelectItem>>,
     table_names: &Vec<String>,
