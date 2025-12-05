@@ -86,6 +86,7 @@ pub fn get_type_of_binding_parameters(
             selection,
             returning,
             table,
+            limit,
             ..
         } => {
             let table_name = table.relation.to_string();
@@ -157,6 +158,27 @@ pub fn get_type_of_binding_parameters(
                     bool_hint.clone(),
                 )?;
             }
+
+            let int_hint = Some(Type {
+                base_type: BaseType::Integer,
+                nullable: false,
+                contains_placeholder: false,
+            });
+
+            if let Some(limit_expr) = limit {
+                traverse_expr(
+                    limit_expr,
+                    &table_names,
+                    all_tables,
+                    &mut results,
+                    int_hint,
+                )
+                .map_err(|mut e| {
+                    e.message = format!("{} in UPDATE LIMIT clause", e.message);
+                    e
+                })?;
+            }
+
             traverse_returning(returning, &table_names, all_tables, &mut results)?;
         }
 
