@@ -208,6 +208,7 @@ pub fn get_type_of_binding_parameters(
                             | sqlparser::ast::JoinOperator::Left(c)
                             | sqlparser::ast::JoinOperator::Right(c)
                             | sqlparser::ast::JoinOperator::RightOuter(c)
+                            | sqlparser::ast::JoinOperator::Join(c)
                             | sqlparser::ast::JoinOperator::FullOuter(c) => Some(c),
                             _ => None,
                         };
@@ -1228,9 +1229,10 @@ fn infer_cte_columns(
     }
     vec![]
 }
+
 #[allow(unused)]
 fn traverse_set_expr(
-    set_expr: &sqlparser::ast::SetExpr,
+    set_expr: &SetExpr,
     outer_scope: &Vec<String>,
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
     results: &mut Vec<Type>,
@@ -1242,61 +1244,100 @@ fn traverse_set_expr(
     });
 
     match set_expr {
-        sqlparser::ast::SetExpr::Select(select) => {
+        SetExpr::Select(select) => {
             let mut local_scope_tables = Vec::new();
             let mut current_select_scope = all_tables.clone();
 
-            for table_with_joins in &select.from {
-                match &table_with_joins.relation {
-                    sqlparser::ast::TableFactor::TableFunction { expr, .. } => {
+            fn register_table_factor(
+                factor: &sqlparser::ast::TableFactor,
+                outer_scope: &Vec<String>,
+                all_tables: &HashMap<String, Vec<ColumnInfo>>,
+                current_select_scope: &mut HashMap<String, Vec<ColumnInfo>>,
+                local_scope_tables: &mut Vec<String>,
+                results: &mut Vec<Type>,
+            ) -> Result<(), InferenceError> {
+                match factor {
+                    sqlparser::ast::TableFactor::Table { name, alias, .. } => {
+                        let real_name = name.to_string();
+                        let effective_name = if let Some(a) = alias {
+                            let alias_name = a.name.value.clone();
+                            if let Some(cols) = all_tables.get(&real_name).cloned() {
+                                current_select_scope.insert(alias_name.clone(), cols);
+                            }
+                            alias_name
+                        } else {
+                            real_name
+                        };
+                        local_scope_tables.push(effective_name);
+                    }
+                    sqlparser::ast::TableFactor::Derived {
+                        subquery, alias, ..
+                    } => {
+                        traverse_query(subquery, outer_scope, all_tables, results)?;
+                        // If it has an alias, register output columns
+                        // of the subquery here, but for param inference, just visiting the subquery is crucial.
+                        if let Some(a) = alias {
+                            local_scope_tables.push(a.name.value.clone());
+                        }
+                    }
+                    sqlparser::ast::TableFactor::TableFunction { expr, alias, .. } => {
                         traverse_expr(
                             expr,
-                            &local_scope_tables,
-                            &current_select_scope,
+                            local_scope_tables,
+                            current_select_scope,
                             results,
                             None,
                         )?;
+                        if let Some(a) = alias {
+                            local_scope_tables.push(a.name.value.clone());
+                        }
                     }
-                    sqlparser::ast::TableFactor::Derived { subquery, .. } => {
-                        traverse_query(subquery, outer_scope, all_tables, results)?;
+                    sqlparser::ast::TableFactor::NestedJoin {
+                        table_with_joins, ..
+                    } => {
+                        register_table_factor(
+                            &table_with_joins.relation,
+                            outer_scope,
+                            all_tables,
+                            current_select_scope,
+                            local_scope_tables,
+                            results,
+                        )?;
+                        for join in &table_with_joins.joins {
+                            register_table_factor(
+                                &join.relation,
+                                outer_scope,
+                                all_tables,
+                                current_select_scope,
+                                local_scope_tables,
+                                results,
+                            )?;
+                        }
                     }
                     _ => {}
                 }
-
-                for join in &table_with_joins.joins {
-                    if let sqlparser::ast::TableFactor::TableFunction { expr, .. } = &join.relation
-                    {
-                        traverse_expr(
-                            expr,
-                            &local_scope_tables,
-                            &current_select_scope,
-                            results,
-                            None,
-                        )?;
-                    }
-                }
+                Ok(())
             }
 
-            let mut register_table = |relation: &sqlparser::ast::TableFactor| {
-                if let sqlparser::ast::TableFactor::Table { name, alias, .. } = relation {
-                    let real_name = name.to_string();
-                    let effective_name = if let Some(a) = alias {
-                        let alias_name = a.name.value.clone();
-                        if let Some(cols) = all_tables.get(&real_name).cloned() {
-                            current_select_scope.insert(alias_name.clone(), cols);
-                        }
-                        alias_name
-                    } else {
-                        real_name
-                    };
-                    local_scope_tables.push(effective_name);
-                }
-            };
-
             for table_with_joins in &select.from {
-                register_table(&table_with_joins.relation);
+                register_table_factor(
+                    &table_with_joins.relation,
+                    outer_scope,
+                    all_tables,
+                    &mut current_select_scope,
+                    &mut local_scope_tables,
+                    results,
+                )?;
+
                 for join in &table_with_joins.joins {
-                    register_table(&join.relation);
+                    register_table_factor(
+                        &join.relation,
+                        outer_scope,
+                        all_tables,
+                        &mut current_select_scope,
+                        &mut local_scope_tables,
+                        results,
+                    )?;
                 }
             }
 
@@ -1340,27 +1381,72 @@ fn traverse_set_expr(
             }
 
             for table_with_joins in &select.from {
-                for join in &table_with_joins.joins {
-                    let constraint = match &join.join_operator {
-                        sqlparser::ast::JoinOperator::Inner(c)
-                        | sqlparser::ast::JoinOperator::Left(c)
-                        | sqlparser::ast::JoinOperator::LeftOuter(c)
-                        | sqlparser::ast::JoinOperator::Right(c)
-                        | sqlparser::ast::JoinOperator::RightOuter(c)
-                        | sqlparser::ast::JoinOperator::FullOuter(c)
-                        | sqlparser::ast::JoinOperator::Join(c) => Some(c),
-                        _ => None,
-                    };
+                fn traverse_join_constraints(
+                    joins: &[sqlparser::ast::Join],
+                    local_scope_tables: &Vec<String>,
+                    current_select_scope: &HashMap<String, Vec<ColumnInfo>>,
+                    results: &mut Vec<Type>,
+                    bool_hint: Option<Type>,
+                ) -> Result<(), InferenceError> {
+                    for join in joins {
+                        let constraint = match &join.join_operator {
+                            sqlparser::ast::JoinOperator::Inner(c)
+                            | sqlparser::ast::JoinOperator::Left(c)
+                            | sqlparser::ast::JoinOperator::LeftOuter(c)
+                            | sqlparser::ast::JoinOperator::Right(c)
+                            | sqlparser::ast::JoinOperator::RightOuter(c)
+                            | sqlparser::ast::JoinOperator::FullOuter(c)
+                            | sqlparser::ast::JoinOperator::Join(c) => Some(c),
+                            _ => None,
+                        };
 
-                    if let Some(sqlparser::ast::JoinConstraint::On(expr)) = constraint {
-                        traverse_expr(
-                            expr,
-                            &local_scope_tables,
-                            &current_select_scope,
-                            results,
-                            bool_hint.clone(),
-                        )?;
+                        if let Some(sqlparser::ast::JoinConstraint::On(expr)) = constraint {
+                            traverse_expr(
+                                expr,
+                                local_scope_tables,
+                                current_select_scope,
+                                results,
+                                bool_hint.clone(),
+                            )?;
+                        }
+
+                        // Recurse if the relation itself is a nested join
+                        if let sqlparser::ast::TableFactor::NestedJoin {
+                            table_with_joins, ..
+                        } = &join.relation
+                        {
+                            traverse_join_constraints(
+                                &table_with_joins.joins,
+                                local_scope_tables,
+                                current_select_scope,
+                                results,
+                                bool_hint.clone(),
+                            )?;
+                        }
                     }
+                    Ok(())
+                }
+
+                traverse_join_constraints(
+                    &table_with_joins.joins,
+                    &local_scope_tables,
+                    &current_select_scope,
+                    results,
+                    bool_hint.clone(),
+                )?;
+
+                if let sqlparser::ast::TableFactor::NestedJoin {
+                    table_with_joins: nested,
+                    ..
+                } = &table_with_joins.relation
+                {
+                    traverse_join_constraints(
+                        &nested.joins,
+                        &local_scope_tables,
+                        &current_select_scope,
+                        results,
+                        bool_hint.clone(),
+                    )?;
                 }
             }
 
@@ -1403,16 +1489,16 @@ fn traverse_set_expr(
             }
         }
 
-        sqlparser::ast::SetExpr::SetOperation { left, right, .. } => {
+        SetExpr::SetOperation { left, right, .. } => {
             traverse_set_expr(left, outer_scope, all_tables, results)?;
             traverse_set_expr(right, outer_scope, all_tables, results)?;
         }
 
-        sqlparser::ast::SetExpr::Query(q) => {
+        SetExpr::Query(q) => {
             traverse_query(q, outer_scope, all_tables, results)?;
         }
 
-        sqlparser::ast::SetExpr::Values(values) => {
+        SetExpr::Values(values) => {
             for row in &values.rows {
                 for expr in row {
                     traverse_expr(expr, outer_scope, all_tables, results, None)?;
@@ -1423,7 +1509,6 @@ fn traverse_set_expr(
     }
     Ok(())
 }
-
 fn traverse_returning(
     returning: &Option<Vec<sqlparser::ast::SelectItem>>,
     table_names: &Vec<String>,
