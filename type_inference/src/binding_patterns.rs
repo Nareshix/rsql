@@ -88,7 +88,7 @@ pub fn get_type_of_binding_parameters(
             table,
             limit,
             from,
-            or
+            or,
         } => {
             let table_name = table.relation.to_string();
 
@@ -205,6 +205,8 @@ pub fn get_type_of_binding_parameters(
                         let constraint = match &join.join_operator {
                             sqlparser::ast::JoinOperator::Inner(c)
                             | sqlparser::ast::JoinOperator::LeftOuter(c)
+                            | sqlparser::ast::JoinOperator::Left(c)
+                            | sqlparser::ast::JoinOperator::Right(c)
                             | sqlparser::ast::JoinOperator::RightOuter(c)
                             | sqlparser::ast::JoinOperator::FullOuter(c) => Some(c),
                             _ => None,
@@ -905,42 +907,50 @@ fn traverse_expr(
             };
 
             if let Some(window_type) = &func.over
-                && let sqlparser::ast::WindowType::WindowSpec(window_spec) = window_type {
-                    for expr in &window_spec.partition_by {
-                        traverse_expr(expr, table_names, all_tables, results, None)
-                            .map_err(err_mapper)?;
-                    }
+                && let sqlparser::ast::WindowType::WindowSpec(window_spec) = window_type
+            {
+                for expr in &window_spec.partition_by {
+                    traverse_expr(expr, table_names, all_tables, results, None)
+                        .map_err(err_mapper)?;
+                }
 
-                    for order in &window_spec.order_by {
-                        traverse_expr(&order.expr, table_names, all_tables, results, None)
-                            .map_err(err_mapper)?;
-                    }
+                for order in &window_spec.order_by {
+                    traverse_expr(&order.expr, table_names, all_tables, results, None)
+                        .map_err(err_mapper)?;
+                }
 
-                    if let Some(window_frame) = &window_spec.window_frame {
-                        let int_hint = Some(Type {
-                            base_type: BaseType::Integer,
-                            nullable: false,
-                            contains_placeholder: false,
-                        });
+                if let Some(window_frame) = &window_spec.window_frame {
+                    let int_hint = Some(Type {
+                        base_type: BaseType::Integer,
+                        nullable: false,
+                        contains_placeholder: false,
+                    });
 
-                        let mut check_bound = |bound: &sqlparser::ast::WindowFrameBound| -> Result<(), InferenceError> {
+                    let mut check_bound =
+                        |bound: &sqlparser::ast::WindowFrameBound| -> Result<(), InferenceError> {
                             match bound {
                                 sqlparser::ast::WindowFrameBound::Preceding(Some(bound_expr))
                                 | sqlparser::ast::WindowFrameBound::Following(Some(bound_expr)) => {
-                                    traverse_expr(bound_expr, table_names, all_tables, results, int_hint.clone())?;
+                                    traverse_expr(
+                                        bound_expr,
+                                        table_names,
+                                        all_tables,
+                                        results,
+                                        int_hint.clone(),
+                                    )?;
                                 }
                                 _ => {}
                             }
                             Ok(())
                         };
 
-                        check_bound(&window_frame.start_bound).map_err(err_mapper)?;
+                    check_bound(&window_frame.start_bound).map_err(err_mapper)?;
 
-                        if let Some(end_bound) = &window_frame.end_bound {
-                            check_bound(end_bound).map_err(err_mapper)?;
-                        }
+                    if let Some(end_bound) = &window_frame.end_bound {
+                        check_bound(end_bound).map_err(err_mapper)?;
                     }
                 }
+            }
 
             let arg_hint = if expects_text {
                 Some(Type {
@@ -1338,8 +1348,7 @@ fn traverse_set_expr(
                         | sqlparser::ast::JoinOperator::Right(c)
                         | sqlparser::ast::JoinOperator::RightOuter(c)
                         | sqlparser::ast::JoinOperator::FullOuter(c)
-                        | sqlparser::ast::JoinOperator::Join(c)
-                        | sqlparser::ast::JoinOperator::CrossJoin(c) => Some(c),
+                        | sqlparser::ast::JoinOperator::Join(c) => Some(c),
                         _ => None,
                     };
 
@@ -1414,6 +1423,7 @@ fn traverse_set_expr(
     }
     Ok(())
 }
+
 fn traverse_returning(
     returning: &Option<Vec<sqlparser::ast::SelectItem>>,
     table_names: &Vec<String>,
