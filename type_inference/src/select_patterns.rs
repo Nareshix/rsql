@@ -52,7 +52,6 @@ pub fn get_types_from_select(
     Ok(vec![])
 }
 
-
 pub fn traverse_select_output(
     body: &SetExpr,
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
@@ -202,22 +201,47 @@ pub fn traverse_select_output(
                 Ok(left_cols)
             }
         }
-
         SetExpr::Values(values) => {
-            let mut cols = Vec::new();
-            if let Some(first_row) = values.rows.first() {
-                for (i, expr) in first_row.iter().enumerate() {
-                    let t = evaluate_expr_type(expr, &vec![], all_tables)?;
-                    cols.push(ColumnInfo {
-                        name: format!("col_{}", i),
-                        data_type: t,
-                        check_constraint: None,
-                    });
+            let rows = &values.rows;
+            if rows.is_empty() {
+                return Ok(vec![]);
+            }
+
+            let mut final_cols = Vec::new();
+            for (i, expr) in rows[0].iter().enumerate() {
+                let t = evaluate_expr_type(expr, &vec![], all_tables)?;
+                final_cols.push(ColumnInfo {
+                    name: format!("col_{}", i),
+                    data_type: t,
+                    check_constraint: None,
+                });
+            }
+
+            for row in rows.iter().skip(1) {
+                if row.len() != final_cols.len() {
+                    return Err("VALUES clause has rows of different lengths".to_string());
+                }
+
+                for (i, expr) in row.iter().enumerate() {
+                    let new_type = evaluate_expr_type(expr, &vec![], all_tables)?;
+
+                    if new_type.nullable {
+                        final_cols[i].data_type.nullable = true;
+                    }
+
+                    let l_base = final_cols[i].data_type.base_type;
+                    let r_base = new_type.base_type;
+
+                    if l_base != r_base
+                        && ((l_base == BaseType::Integer && r_base == BaseType::Real)
+                            || (l_base == BaseType::Real && r_base == BaseType::Integer))
+                    {
+                        final_cols[i].data_type.base_type = BaseType::Real;
+                    }
                 }
             }
-            Ok(cols)
+            Ok(final_cols)
         }
-
         SetExpr::Query(q) => traverse_select_output(&q.body, all_tables),
 
         _ => Ok(vec![]),
@@ -329,6 +353,54 @@ fn resolve_table_factor(
 
             working_tables.insert(alias_name.clone(), sub_cols);
             local_scope_tables.push(alias_name);
+        }
+
+        TableFactor::NestedJoin {
+            table_with_joins, ..
+        } => {
+            let scope_start_index = local_scope_tables.len();
+
+            resolve_table_factor(
+                &table_with_joins.relation,
+                force_nullable,
+                all_tables,
+                working_tables,
+                local_scope_tables,
+            )?;
+
+            for join in &table_with_joins.joins {
+                let op = &join.join_operator;
+
+                let make_current_table_nullable = matches!(
+                    op,
+                    JoinOperator::Left(_) | JoinOperator::LeftOuter(_) | JoinOperator::FullOuter(_)
+                );
+
+                let make_existing_tables_nullable = matches!(
+                    op,
+                    JoinOperator::Right(_)
+                        | JoinOperator::RightOuter(_)
+                        | JoinOperator::FullOuter(_)
+                );
+
+                if make_existing_tables_nullable {
+                    for table_name in &local_scope_tables[scope_start_index..] {
+                        if let Some(cols) = working_tables.get_mut(table_name) {
+                            for col in cols {
+                                col.data_type.nullable = true;
+                            }
+                        }
+                    }
+                }
+
+                resolve_table_factor(
+                    &join.relation,
+                    force_nullable || make_current_table_nullable,
+                    all_tables,
+                    working_tables,
+                    local_scope_tables,
+                )?;
+            }
         }
         _ => {}
     }
