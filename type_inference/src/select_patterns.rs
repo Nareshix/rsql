@@ -15,7 +15,7 @@ use crate::{expr::Type, table::ColumnInfo};
 pub fn get_types_from_select(
     sql: &str,
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
-) -> Result<Vec<Type>, String> {
+) -> Result<Vec<ColumnInfo>, String> {
     let dialect = SQLiteDialect {};
     let sql = pg_cast_syntax_to_sqlite(sql);
 
@@ -49,8 +49,7 @@ pub fn get_types_from_select(
             }
         }
 
-        let final_cols = traverse_select_output(&query.body, &context_tables)?;
-        return Ok(final_cols.into_iter().map(|c| c.data_type).collect());
+        return traverse_select_output(&query.body, &context_tables);
     }
 
     Ok(vec![])
