@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use crate::expr::{BaseType, evaluate_expr_type};
 use crate::pg_type_cast_to_sqlite::pg_cast_syntax_to_sqlite;
-use crate::{expr::Type, table::ColumnInfo};
+use crate::table::ColumnInfo;
 
 pub fn get_types_from_select(
     sql: &str,
