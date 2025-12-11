@@ -8,7 +8,10 @@ use std::{
     ptr,
 };
 
-use crate::errors::{SqliteFailure, connection::{SqliteOpenErrors, SqlitePrepareErrors}};
+use crate::errors::{
+    SqliteFailure,
+    connection::{SqliteOpenErrors, SqlitePrepareErrors},
+};
 
 pub enum RustTypes {
     Integer,
@@ -75,7 +78,7 @@ pub unsafe fn prepare_stmt(
     Ok(())
 }
 
-pub fn get_db_schema(db_path: &str) -> Result<Vec<(String, String)>, SqliteOpenErrors> {
+pub fn get_db_schema(db_path: &str) -> Result<Vec<String>, SqliteOpenErrors> {
     let mut db = ptr::null_mut();
     let c_path = CString::new(db_path).unwrap();
     let mut results = Vec::new();
@@ -85,7 +88,7 @@ pub fn get_db_schema(db_path: &str) -> Result<Vec<(String, String)>, SqliteOpenE
         unsafe {
             close_db(db);
         };
-        return Err(SqliteOpenErrors::SqliteFailure { code, error_msg })
+        return Err(SqliteOpenErrors::SqliteFailure { code, error_msg });
     }
 
     //  Prepare - Select only tables, ignore sqlite_sequence/indexes
@@ -104,17 +107,6 @@ pub fn get_db_schema(db_path: &str) -> Result<Vec<(String, String)>, SqliteOpenE
 
     // Step through rows
     while unsafe { sqlite3_step(stmt) } == SQLITE_ROW {
-        let name_ptr = unsafe { sqlite3_column_text(stmt, 0) };
-        let name = if name_ptr.is_null() {
-            String::new()
-        } else {
-            unsafe {
-                CStr::from_ptr(name_ptr as *const i8)
-                    .to_string_lossy()
-                    .into_owned()
-            }
-        };
-
         let sql_ptr = unsafe { sqlite3_column_text(stmt, 1) };
         let sql_txt = if sql_ptr.is_null() {
             String::new()
@@ -126,7 +118,7 @@ pub fn get_db_schema(db_path: &str) -> Result<Vec<(String, String)>, SqliteOpenE
             }
         };
 
-        results.push((name, sql_txt));
+        results.push(sql_txt);
     }
 
     unsafe { sqlite3_finalize(stmt) };
@@ -165,8 +157,7 @@ mod tests {
 
             println!("{schema:?}");
             assert_eq!(schema.len(), 1);
-            assert_eq!(schema[0].0, "users"); // Name matches
-            assert!(schema[0].1.contains("CREATE TABLE users")); // SQL matches
+            assert!(schema[0].contains("CREATE TABLE users")); // SQL matches
 
             // Cleanup file
             std::fs::remove_file(db_name).unwrap_or(());
