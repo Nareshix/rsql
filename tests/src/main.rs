@@ -14,7 +14,7 @@ struct OrdersItemCount {
 pub struct ShopDao {
     // 1. Complex Join
     q_complex_join: sql!(
-        "SELECT 
+        "SELECT
         o.order_id,
         u.username,
         SUM(oi.quantity * oi.price_each) AS total_amount,
@@ -38,10 +38,8 @@ pub struct ShopDao {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let conn = LazyConnection::open("oi.db").unwrap();
-
     let mut dao = ShopDao::new(&conn);
 
-    // dao.create_addresses()?.step()?;
 
     let x = {
         let stmt = dao.q_item_count()?;

@@ -53,7 +53,7 @@ fn main() {
     // let types = get_types_from_select(sql, &all_tables);
     // println!("{:?}", types);
 
-    let sql = "SELECT (1, 2) > (1, 1); --";
+    let sql = "SELECT * from moms; --";
     let types = get_types_from_select(sql, &all_tables);
     println!("{:?}", types);
 

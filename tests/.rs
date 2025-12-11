@@ -1,11 +1,9 @@
 #![feature(prelude_import)]
 #[macro_use]
 extern crate std;
+use rsql::{SqlMapping, internal_sqlite::efficient::lazy_connection::LazyConnection, lazy_sql};
 #[prelude_import]
 use std::prelude::rust_2024::*;
-use rsql::{
-    SqlMapping, internal_sqlite::efficient::lazy_connection::LazyConnection, lazy_sql,
-};
 struct OrdersItemCount {
     pub order_id: i32,
     pub num_items: i32,
@@ -28,12 +26,8 @@ struct OrdersItemCountMapper;
 impl rsql::traits::row_mapper::RowMapper for OrdersItemCountMapper {
     type Output = OrdersItemCount;
     unsafe fn map_row(&self, stmt: *mut libsqlite3_sys::sqlite3_stmt) -> Self::Output {
-        let order_id = unsafe {
-            <i32 as rsql::traits::from_sql::FromSql>::from_sql(stmt, 0i32)
-        };
-        let num_items = unsafe {
-            <i32 as rsql::traits::from_sql::FromSql>::from_sql(stmt, 1i32)
-        };
+        let order_id = unsafe { <i32 as rsql::traits::from_sql::FromSql>::from_sql(stmt, 0i32) };
+        let num_items = unsafe { <i32 as rsql::traits::from_sql::FromSql>::from_sql(stmt, 1i32) };
         Self::Output {
             order_id,
             num_items,
@@ -49,13 +43,11 @@ pub struct ShopDao<'a> {
     q_item_count: rsql::internal_sqlite::efficient::lazy_statement::LazyStmt,
 }
 impl<'a> ShopDao<'a> {
-    pub fn new(
-        db: &'a rsql::internal_sqlite::efficient::lazy_connection::LazyConnection,
-    ) -> Self {
+    pub fn new(db: &'a rsql::internal_sqlite::efficient::lazy_connection::LazyConnection) -> Self {
         Self {
             __db: db,
             q_complex_join: rsql::internal_sqlite::efficient::lazy_statement::LazyStmt {
-                sql_query: "SELECT 
+                sql_query: "SELECT
         o.order_id,
         u.username,
         SUM(oi.quantity * oi.price_each) AS total_amount,
@@ -79,6 +71,19 @@ impl<'a> ShopDao<'a> {
             },
         }
     }
+    /** **SQL**
+    ```sql
+    SELECT
+        o.order_id,
+        u.username,
+        SUM(oi.quantity * oi.price_each) AS total_amount,
+        o.status
+    FROM
+        orders o
+        JOIN users u ON o.user_id = u.user_id
+        JOIN order_items oi ON oi.order_id = o.order_id
+    GROUP BY
+        o.order_id;*/
     pub fn q_complex_join(
         &mut self,
     ) -> Result<
@@ -94,11 +99,21 @@ impl<'a> ShopDao<'a> {
                 )?;
             }
         }
-        Ok(rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt {
-            stmt: self.q_complex_join.stmt,
-            conn: self.__db.db,
-        })
+        Ok(
+            rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt {
+                stmt: self.q_complex_join.stmt,
+                conn: self.__db.db,
+            },
+        )
     }
+    /** **SQL**
+    ```sql
+    SELECT
+        name
+    FROM
+        products
+    WHERE
+        stock < 20*/
     pub fn q_low_stock(
         &mut self,
     ) -> Result<
@@ -114,11 +129,24 @@ impl<'a> ShopDao<'a> {
                 )?;
             }
         }
-        Ok(rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt {
-            stmt: self.q_low_stock.stmt,
-            conn: self.__db.db,
-        })
+        Ok(
+            rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt {
+                stmt: self.q_low_stock.stmt,
+                conn: self.__db.db,
+            },
+        )
     }
+    /** **SQL**
+    ```sql
+    SELECT
+        order_id,
+        COUNT(*) AS num_items
+    FROM
+        order_items
+    GROUP BY
+        order_id
+    HAVING
+        COUNT(*) > ?;*/
     pub fn q_item_count(
         &mut self,
     ) -> Result<
@@ -134,10 +162,12 @@ impl<'a> ShopDao<'a> {
                 )?;
             }
         }
-        Ok(rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt {
-            stmt: self.q_item_count.stmt,
-            conn: self.__db.db,
-        })
+        Ok(
+            rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt {
+                stmt: self.q_item_count.stmt,
+                conn: self.__db.db,
+            },
+        )
     }
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -150,7 +180,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     for i in x {
         {
-            ::std::io::_print(format_args!("{0:?}\n", i?));
+            ::std::io::_print(format_args!("{0}\n", i?.num_items));
         };
     }
     {
