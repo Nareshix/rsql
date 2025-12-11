@@ -75,7 +75,7 @@ pub unsafe fn prepare_stmt(
     Ok(())
 }
 
-pub unsafe fn get_db_schema(db_path: &str) -> Result<Vec<(String, String)>, SqliteOpenErrors> {
+pub fn get_db_schema(db_path: &str) -> Result<Vec<(String, String)>, SqliteOpenErrors> {
     let mut db = ptr::null_mut();
     let c_path = CString::new(db_path).unwrap();
     let mut results = Vec::new();
