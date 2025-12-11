@@ -21,17 +21,33 @@ pub fn query(input: TokenStream) -> TokenStream {
 }
 
 
+
 #[proc_macro_attribute]
-pub fn lazy_sql(_args: TokenStream, input: TokenStream) -> TokenStream {
+pub fn lazy_sql(args: TokenStream, input: TokenStream) -> TokenStream {
+    let path_lit = match syn::parse::<syn::LitStr>(args) {
+        Ok(lit) => lit,
+        Err(_) => {
+            return syn::Error::new(
+                proc_macro2::Span::call_site(),
+                "lazy_sql requires a path argument, e.g., #[lazy_sql(\"my_path\")]"
+            )
+            .to_compile_error()
+            .into();
+        }
+    };
+
+    let path = path_lit.value();
     let mut item_struct = parse_macro_input!(input as ItemStruct);
 
-    match expand(&mut item_struct) {
+    match expand(&mut item_struct, path) {
         Ok(output) => output.into(),
         Err(err) => err.to_compile_error().into(),
     }
 }
-
-fn expand(item_struct: &mut ItemStruct) -> syn::Result<proc_macro2::TokenStream> {
+fn expand(
+    item_struct: &mut ItemStruct,
+    path: String 
+) -> syn::Result<proc_macro2::TokenStream> {
     let struct_name = &item_struct.ident;
 
     // 1. Validate it has named fields
@@ -54,13 +70,13 @@ fn expand(item_struct: &mut ItemStruct) -> syn::Result<proc_macro2::TokenStream>
 
         // Check if type is sql!("...")
         if let Some(sql_lit) = parse_sql_macro_type(&field.ty)? {
-        
+
             let sql_query = format_sql(&sql_lit.value());
 
             let doc_comment = format!(" **SQL**\n```sql\n{}", sql_query);
-            
+
             // --- IS SQL FIELD ---
-            
+
             // A. Replace type with LazyStmt
             field.ty = parse_quote!(rsql::internal_sqlite::efficient::lazy_statement::LazyStmt);
 
@@ -77,12 +93,12 @@ fn expand(item_struct: &mut ItemStruct) -> syn::Result<proc_macro2::TokenStream>
                 #[doc = #doc_comment]
                 pub fn #ident(&mut self) -> Result<rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt, rsql::errors::connection::SqlitePrepareErrors> {
                     if self.#ident.stmt.is_null() {
-                        unsafe { 
+                        unsafe {
                             rsql::utility::utils::prepare_stmt(
-                                self.__db.db, 
-                                &mut self.#ident.stmt, 
+                                self.__db.db,
+                                &mut self.#ident.stmt,
                                 self.#ident.sql_query
-                            )?; 
+                            )?;
                         }
                     }
                     Ok(rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt {
@@ -118,8 +134,8 @@ fn expand(item_struct: &mut ItemStruct) -> syn::Result<proc_macro2::TokenStream>
 
         impl #impl_generics #struct_name #ty_generics #where_clause {
             pub fn new(
-                db: &'a rsql::internal_sqlite::efficient::lazy_connection::LazyConnection, 
-                #(#standard_params),* 
+                db: &'a rsql::internal_sqlite::efficient::lazy_connection::LazyConnection,
+                #(#standard_params),*
             ) -> Self {
                 Self {
                     __db: db,
@@ -134,18 +150,18 @@ fn expand(item_struct: &mut ItemStruct) -> syn::Result<proc_macro2::TokenStream>
 }
 
 fn parse_sql_macro_type(ty: &Type) -> syn::Result<Option<LitStr>> {
-    if let Type::Macro(type_macro) = ty 
+    if let Type::Macro(type_macro) = ty
         && type_macro.mac.path.is_ident("sql") {
         let lit: LitStr = syn::parse2(type_macro.mac.tokens.clone())
             .map_err(|_| syn::Error::new(
                 type_macro.mac.tokens.span(),
             "sql!(...) must contain a string"
                 ))?;
-            
+
             return Ok(Some(lit));
 
             }
-        
+
         Ok(None)
 }
 
