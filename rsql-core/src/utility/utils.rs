@@ -1,7 +1,8 @@
 use libsqlite3_sys::{
-    self as ffi, SQLITE_OK, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_ROW, sqlite3,
-    sqlite3_close, sqlite3_column_text, sqlite3_errcode, sqlite3_finalize, sqlite3_open,
-    sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_step, sqlite3_stmt,
+    self as ffi, SQLITE_OK, SQLITE_OPEN_CREATE, SQLITE_OPEN_READONLY, SQLITE_OPEN_READWRITE,
+    SQLITE_ROW, sqlite3, sqlite3_busy_timeout, sqlite3_close, sqlite3_column_text, sqlite3_errcode,
+    sqlite3_finalize, sqlite3_open, sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_step,
+    sqlite3_stmt,
 };
 use std::{
     ffi::{CStr, CString, c_char},
@@ -85,54 +86,59 @@ pub fn get_db_schema(db_path: &str) -> Result<Vec<String>, SqliteOpenErrors> {
         });
     }
 
-    let mut db = ptr::null_mut();
     let c_path = CString::new(db_path).unwrap();
+    let mut db = ptr::null_mut();
     let mut results = Vec::new();
 
-    if unsafe { sqlite3_open(c_path.as_ptr(), &mut db) } != SQLITE_OK {
-        let (code, error_msg) = unsafe { get_sqlite_failiure(db) };
-        unsafe {
-            close_db(db);
-        };
-        return Err(SqliteOpenErrors::SqliteFailure { code, error_msg });
-    }
-
-    //  Prepare - Select only tables, ignore sqlite_sequence/indexes
-    let sql = b"SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name\0";
-    let mut stmt: *mut sqlite3_stmt = ptr::null_mut();
-
     unsafe {
-        sqlite3_prepare_v2(
+        let flags = SQLITE_OPEN_READONLY;
+        let rc = sqlite3_open_v2(c_path.as_ptr(), &mut db, flags, ptr::null());
+
+        if rc != SQLITE_OK {
+            let (code, error_msg) = get_sqlite_failiure(db);
+            sqlite3_close(db);
+            return Err(SqliteOpenErrors::SqliteFailure { code, error_msg });
+        }
+
+        // 2. ADD TIMEOUT to stop "Database Locked" errors with VS Code
+        // sqlite3_busy_timeout(db, 2000); // Wait 2 seconds
+
+        let sql = b"SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name\0";
+        let mut stmt: *mut sqlite3_stmt = ptr::null_mut();
+
+        let prepare_rc = sqlite3_prepare_v2(
             db,
             sql.as_ptr() as *const i8,
             -1,
             &mut stmt,
             ptr::null_mut(),
-        )
-    };
+        );
 
-    // Step through rows
-    while unsafe { sqlite3_step(stmt) } == SQLITE_ROW {
-        let sql_ptr = unsafe { sqlite3_column_text(stmt, 1) };
-        let sql_txt = if sql_ptr.is_null() {
-            String::new()
-        } else {
-            unsafe {
+        if prepare_rc != SQLITE_OK {
+            let (code, error_msg) = get_sqlite_failiure(db);
+            sqlite3_close(db);
+            return Err(SqliteOpenErrors::SqliteFailure { code, error_msg });
+        }
+
+        // Step through rows
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let sql_ptr = sqlite3_column_text(stmt, 1);
+            let sql_txt = if sql_ptr.is_null() {
+                String::new()
+            } else {
                 CStr::from_ptr(sql_ptr as *const i8)
                     .to_string_lossy()
                     .into_owned()
-            }
-        };
+            };
+            results.push(sql_txt);
+        }
 
-        results.push(sql_txt);
+        sqlite3_finalize(stmt);
+        sqlite3_close(db);
     }
-
-    unsafe { sqlite3_finalize(stmt) };
-    unsafe { sqlite3_close(db) };
 
     Ok(results)
 }
-
 pub fn validate_sql_syntax_with_sqlite(db_path: &str, sql: &str) -> Result<(), String> {
     unsafe {
         let c_db_path = CString::new(db_path)
@@ -142,17 +148,17 @@ pub fn validate_sql_syntax_with_sqlite(db_path: &str, sql: &str) -> Result<(), S
 
         let mut db: *mut sqlite3 = ptr::null_mut();
 
-        let open_flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
+        let open_flags = SQLITE_OPEN_READONLY;
         let open_rc = sqlite3_open_v2(c_db_path.as_ptr(), &mut db, open_flags, ptr::null());
 
         if open_rc != SQLITE_OK {
             let err_msg = get_sqlite_failiure(db);
             sqlite3_close(db);
-            return Err(format!(
-                "Error: {}. {}",
-                err_msg.0, err_msg.1
-            ));
+            return Err(format!("Error: {}. {}", err_msg.0, err_msg.1));
         }
+
+        // Wait up to 2000ms (2s) if the file is locked by VS Code
+        // sqlite3_busy_timeout(db, 2000);
 
         let mut stmt = ptr::null_mut();
         let mut tail = ptr::null();
@@ -163,10 +169,10 @@ pub fn validate_sql_syntax_with_sqlite(db_path: &str, sql: &str) -> Result<(), S
             Ok(())
         } else {
             let err_msg = get_sqlite_failiure(db);
-            return Err(format!(
-                "Error: {} Failed to open database: {}",
+            Err(format!(
+                "Error: {} Failed to prepare SQL: {}", // Changed message slightly
                 err_msg.0, err_msg.1
-            ));
+            ))
         };
 
         if !stmt.is_null() {
@@ -174,11 +180,9 @@ pub fn validate_sql_syntax_with_sqlite(db_path: &str, sql: &str) -> Result<(), S
         }
 
         sqlite3_close(db);
-
         result
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
