@@ -11,7 +11,11 @@ use syn::{
     Data, DeriveInput, Fields, GenericParam, Ident, ItemStruct, Lifetime, LifetimeParam, LitStr,
     Type, parse_macro_input, parse_quote, spanned::Spanned,
 };
-use type_inference::table::create_tables;
+use type_inference::{
+    binding_patterns::get_type_of_binding_parameters,
+    pg_type_cast_to_sqlite::pg_cast_syntax_to_sqlite, select_patterns::get_types_from_select,
+    table::create_tables,
+};
 
 use crate::{execute::Execute, query::Query, utils::format_sql};
 
@@ -103,19 +107,92 @@ fn expand(
         // Check if type is sql!("...")
         if let Some(sql_lit) = parse_sql_macro_type(&field.ty)? {
             let sql_query = format_sql(&sql_lit.value());
+            let sql_query = pg_cast_syntax_to_sqlite(&sql_query); // converts :: to CAST AS
 
             // Sql errors from sqlite
             if let Err(err_msg) = validate_sql_syntax_with_sqlite(&db_path, &sql_query) {
-                return Err(syn::Error::new(
-                    sql_lit.span(),
-                    err_msg.to_string(),
-                ));
+                return Err(syn::Error::new(sql_lit.span(), err_msg.to_string()));
             }
-            
+
+            // select_types will give Ok([]) if it isnt a SELECT stmt but a valid sql stmt
+            let select_types = match get_types_from_select(&sql_query, &all_tables) {
+                Ok(types) => types,
+                Err(err_msg) => {
+                    return Err(syn::Error::new(
+                        sql_lit.span(),
+                        format!("Return Type Error: {}", err_msg),
+                    ));
+                }
+            };
+
+            // binding_types will also give Ok([]) if there is no binding parameter
+
+            // let binding_types = match get_type_of_binding_parameters(&sql_query, &all_tables) {
+            //     Ok(types) => types,
+            //     Err(err) => {
+            //         let lines: Vec<&str> = sql_query.lines().collect();
+
+            //         // Convert 1-based indices to 0-based usize
+            //         let line_idx = err.start.line.saturating_sub(1) as usize;
+            //         let start_col = err.start.column.saturating_sub(1) as usize;
+            //         let end_col = err.end.column.saturating_sub(1) as usize;
+
+            //         let mut msg = format!("Parameter Binding Error: {}", err.message);
+
+            //         if let Some(raw_line) = lines.get(line_idx) {
+            //             // 1. Calculate Indentation (in bytes)
+            //             let indent_len_bytes = raw_line
+            //                 .char_indices()
+            //                 .take_while(|(_, c)| c.is_whitespace())
+            //                 .last()
+            //                 .map(|(i, c)| i + c.len_utf8())
+            //                 .unwrap_or(0);
+
+            //             // 2. Adjust Start Column to Byte Index
+            //             // (Assuming err.start.column is a generic CHAR count, we need to map it to bytes)
+            //             let start_byte_idx = raw_line
+            //                 .chars()
+            //                 .take(start_col)
+            //                 .map(|c| c.len_utf8())
+            //                 .sum::<usize>();
+            //             let end_byte_idx = raw_line
+            //                 .chars()
+            //                 .take(end_col)
+            //                 .map(|c| c.len_utf8())
+            //                 .sum::<usize>();
+
+            //             // Safety: Ensure we don't trim past the error
+            //             let safe_indent = if indent_len_bytes <= start_byte_idx {
+            //                 indent_len_bytes
+            //             } else {
+            //                 0
+            //             };
+
+            //             // 3. Trim the Line
+            //             let trimmed_line = &raw_line[safe_indent..];
+
+            //             // 4. Calculate Arrow Offsets
+            //             // We map the *trimmed* portion to spaces/tabs to align the arrow
+            //             // Note: start_byte_idx - safe_indent gives us the byte offset into the trimmed string
+            //             let err_start_in_trimmed = start_byte_idx - safe_indent;
+            //             let err_len = end_byte_idx - start_byte_idx;
+
+            //             // Create padding based on the visual width of the characters before the error
+            //             let padding: String = trimmed_line[..err_start_in_trimmed]
+            //                 .chars()
+            //                 .map(|c| if c == '\t' { '\t' } else { ' ' })
+            //                 .collect();
+
+            //             let arrows = "^".repeat(err_len.max(1));
+
+            //             msg = format!("{}\n\n{}\n{}{}", msg, trimmed_line, padding, arrows);
+            //         }
+
+            //         return Err(syn::Error::new(sql_lit.span(), msg));
+            //     }
+            // };
 
             let doc_comment = format!(" **SQL**\n```sql\n{}", sql_query);
-
-            // --- IS SQL FIELD ---
 
             // A. Replace type with LazyStmt
             field.ty = parse_quote!(rsql::internal_sqlite::efficient::lazy_statement::LazyStmt);
