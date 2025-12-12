@@ -125,7 +125,6 @@ fn expand(
             };
 
             // binding_types will also give Ok([]) if there is no binding parameter
-            //TODO read up more proc_macro_span. i want ide to speicifclaly highlight the exact error
             let binding_types = match get_type_of_binding_parameters(&sql_query, &all_tables) {
                 Ok(types) => types,
                 Err(err) => {
@@ -185,12 +184,14 @@ fn expand(
                 }
             };
 
-            let doc_comment = format!(" **SQL**\n```sql\n{}", sql_query);
 
-            // A. Replace type with LazyStmt
+            let formated_sql_query=  format_sql(&sql_query);
+            let doc_comment = format!(" **SQL**\n```sql\n{}", formated_sql_query);
+
+            // Replace type with LazyStmt
             field.ty = parse_quote!(rsql::internal_sqlite::efficient::lazy_statement::LazyStmt);
 
-            // B. Initializer
+            // Initializer
             sql_assignments.push(quote! {
                 #ident: rsql::internal_sqlite::efficient::lazy_statement::LazyStmt {
                     sql_query: #sql_lit,
