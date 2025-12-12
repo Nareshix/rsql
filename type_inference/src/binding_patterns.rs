@@ -1,6 +1,6 @@
 use crate::expr::{BaseType, Type, evaluate_expr_type};
 use crate::pg_type_cast_to_sqlite::pg_cast_syntax_to_sqlite;
-use crate::table::{ColumnInfo, get_table_names};
+use crate::table::{ColumnInfo, get_table_names, normalize_identifier, normalize_part};
 use sqlparser::ast::{
     BinaryOperator, DataType, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, SetExpr,
     Spanned, Statement,
@@ -29,6 +29,15 @@ pub struct InferenceError {
     pub start: Location,
     pub end: Location,
     pub message: String,
+}
+
+fn get_table_name_str(table: &sqlparser::ast::TableObject) -> String {
+    match table {
+        sqlparser::ast::TableObject::TableName(obj_name) => {
+             obj_name.0.last().map(normalize_part).unwrap_or_default()
+        }
+        _ => String::new(),
+    }
 }
 
 fn err_from_expr(expr: &impl Spanned, msg: impl Into<String>) -> InferenceError {
@@ -90,12 +99,19 @@ pub fn get_type_of_binding_parameters(
             from,
             or,
         } => {
-            let table_name = table.relation.to_string();
+            let table_name = match &table.relation {
+                sqlparser::ast::TableFactor::Table { name, .. } => {
+                    name.0.last().map(normalize_part).unwrap_or_default()
+                }
+                _ => table.relation.to_string(),
+            };
 
             for assignment in assignments {
                 match &assignment.target {
                     sqlparser::ast::AssignmentTarget::ColumnName(obj_name) => {
-                        let col_name = obj_name.0.last().map(|p| p.to_string()).unwrap_or_default();
+                        let col_name = obj_name.0.last()
+                             .map(normalize_part)
+                             .unwrap_or_default();
 
                         let mut hint = None;
                         if let Some(cols) = all_tables.get(&table_name)
@@ -235,10 +251,7 @@ pub fn get_type_of_binding_parameters(
         }
 
         Statement::Insert(insert_node) => {
-            let t_name = match &insert_node.table {
-                sqlparser::ast::TableObject::TableName(obj_name) => obj_name.to_string(),
-                _ => String::new(),
-            };
+            let t_name = get_table_name_str(&insert_node.table);
 
             let expected_types = if let Some(table_cols) = all_tables.get(&t_name) {
                 if insert_node.columns.is_empty() {
@@ -253,7 +266,7 @@ pub fn get_type_of_binding_parameters(
                         .map(|ident| {
                             table_cols
                                 .iter()
-                                .find(|c| c.name == ident.value)
+                                .find(|c| c.name == normalize_identifier(ident))
                                 .map(|c| c.data_type.clone())
                         })
                         .collect()

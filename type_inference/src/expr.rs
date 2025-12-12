@@ -4,7 +4,10 @@ use sqlparser::ast::{
     BinaryOperator, DataType, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, Ident, Value,
 };
 
-use crate::{select_patterns::traverse_select_output, table::ColumnInfo};
+use crate::{
+    select_patterns::traverse_select_output,
+    table::{ColumnInfo, normalize_identifier},
+};
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BaseType {
     Integer,
@@ -23,14 +26,6 @@ pub struct Type {
     pub contains_placeholder: bool,
 }
 
-pub fn identifiers_match(definition_name: &str, usage: &Ident) -> bool {
-    if usage.quote_style.is_some() {
-        definition_name == usage.value
-    } else {
-        definition_name.eq_ignore_ascii_case(&usage.value)
-    }
-}
-
 /// https://docs.rs/sqlparser/latest/sqlparser/ast/enum.Expr.html, version 0.59.0
 pub fn evaluate_expr_type(
     expr: &Expr,
@@ -39,47 +34,50 @@ pub fn evaluate_expr_type(
 ) -> Result<Type, String> {
     match expr {
         Expr::Identifier(ident) => {
+            let search_name = normalize_identifier(ident);
+
             let matches: Vec<&Type> = table_names_from_select
                 .iter()
                 .filter_map(|table_name| all_tables.get(table_name)) // Get columns for table
                 .flat_map(|cols| cols.iter()) // Flatten Vec<Vec<Col>> into iterator of Cols
-                .filter(|col_info| identifiers_match(&col_info.name, ident)) // Find matches
+                .filter(|col_info| col_info.name == search_name) // Compare normalized names
                 .map(|col_info| &col_info.data_type)
                 .collect();
 
             match matches.len() {
                 0 => Err(format!(
                     "Column '{}' not found in tables {:?}",
-                    ident.value, table_names_from_select
+                    search_name, table_names_from_select
                 )),
                 1 => Ok(matches[0].clone()),
-                _ => Err(format!("Ambiguous column name '{}'", ident.value)),
+                _ => Err(format!("Ambiguous column name '{}'", search_name)),
             }
         }
-        Expr::CompoundIdentifier(idents) => {
-            // We expect "table.column"
-            let table_ident = &idents[0];
-            let col_ident = &idents[1];
 
-            // table keys in HashMap are stored lowercase
-            let table_lookup_key = if table_ident.quote_style.is_some() {
-                table_ident.value.clone()
-            } else {
-                table_ident.value.to_lowercase()
-            };
+        Expr::CompoundIdentifier(idents) => {
+            // We expect "table.column" (simplified handling)
+            if idents.len() < 2 {
+                return Err(format!("Invalid identifier format: {:?}", idents));
+            }
+
+            let table_ident = &idents[idents.len() - 2]; // 2nd to last is usually table
+            let col_ident = &idents[idents.len() - 1]; // last is column
+
+            let table_lookup_key = normalize_identifier(table_ident);
+            let col_lookup_key = normalize_identifier(col_ident);
 
             let column_infos = all_tables
                 .get(&table_lookup_key)
-                .ok_or_else(|| format!("Table '{}' not found", table_ident.value))?;
+                .ok_or_else(|| format!("Table '{}' not found", table_lookup_key))?;
 
             column_infos
                 .iter()
-                .find(|c| identifiers_match(&c.name, col_ident))
+                .find(|c| c.name == col_lookup_key)
                 .map(|c| c.data_type.clone())
                 .ok_or_else(|| {
                     format!(
                         "Column '{}' not found in table '{}'",
-                        col_ident.value, table_ident.value
+                        col_lookup_key, table_lookup_key
                     )
                 })
         }
@@ -97,7 +95,6 @@ pub fn evaluate_expr_type(
         // Expr::Prior() TODO
         // Expr::MemberOf() json specifc TODO
         // Compound
-
         Expr::Tuple(exprs) => {
             if let Some(first) = exprs.first() {
                 evaluate_expr_type(first, table_names_from_select, all_tables)

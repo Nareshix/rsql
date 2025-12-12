@@ -8,9 +8,12 @@ use sqlparser::{
 };
 use std::collections::HashMap;
 
-use crate::expr::{BaseType, evaluate_expr_type};
-use crate::pg_type_cast_to_sqlite::pg_cast_syntax_to_sqlite;
 use crate::table::ColumnInfo;
+use crate::{
+    expr::{BaseType, evaluate_expr_type},
+    table::normalize_identifier,
+};
+use crate::{pg_type_cast_to_sqlite::pg_cast_syntax_to_sqlite, table::normalize_part};
 
 pub fn get_types_from_select(
     sql: &str,
@@ -26,7 +29,7 @@ pub fn get_types_from_select(
 
         if let Some(with) = &query.with {
             for cte in &with.cte_tables {
-                let cte_name = cte.alias.name.value.clone();
+                let cte_name = normalize_identifier(&cte.alias.name);
 
                 let inferred_cols = resolve_cte_columns(cte, &context_tables)?;
 
@@ -35,14 +38,14 @@ pub fn get_types_from_select(
                     .enumerate()
                     .map(|(i, mut col)| {
                         // If an explicit alias exists at this index, overwrite the name
-                        if let Some(alias) = cte.alias.columns.get(i) {
-                            col.name = alias.name.value.clone();
+                        if let Some(alias_def) = cte.alias.columns.get(i) {
+                            col.name = normalize_identifier(&alias_def.name);
                         }
                         col
                     })
                     .collect();
 
-                context_tables.insert(cte_name.to_lowercase(), final_cols);
+                context_tables.insert(cte_name, final_cols);
             }
         }
 
@@ -115,7 +118,7 @@ pub fn traverse_select_output(
                     SelectItem::ExprWithAlias { expr, alias } => {
                         let t = evaluate_expr_type(expr, &local_scope_tables, &working_tables)?;
                         output_columns.push(ColumnInfo {
-                            name: alias.value.clone(),
+                            name: normalize_identifier(alias),
                             data_type: t,
                             check_constraint: None,
                         });
@@ -123,9 +126,9 @@ pub fn traverse_select_output(
                     SelectItem::UnnamedExpr(expr) => {
                         let t = evaluate_expr_type(expr, &local_scope_tables, &working_tables)?;
                         let name = match expr {
-                            Expr::Identifier(ident) => ident.value.clone(),
+                            Expr::Identifier(ident) => normalize_identifier(ident),
                             Expr::CompoundIdentifier(idents) => {
-                                idents.last().unwrap().value.clone()
+                                normalize_identifier(idents.last().unwrap())
                             }
                             _ => format!("col_{}", i),
                         };
@@ -146,14 +149,11 @@ pub fn traverse_select_output(
                     }
                     SelectItem::QualifiedWildcard(kind, _) => {
                         if let SelectItemQualifiedWildcardKind::ObjectName(obj_name) = kind {
-                            let alias_name =
-                                if let Some(sqlparser::ast::ObjectNamePart::Identifier(ident)) =
-                                    obj_name.0.last()
-                                {
-                                    ident.value.clone()
-                                } else {
-                                    obj_name.to_string()
-                                };
+                            let alias_name = obj_name
+                                .0
+                                .last()
+                                .map(normalize_part)
+                                .unwrap_or(obj_name.to_string());
 
                             if let Some(column_infos) = working_tables.get(&alias_name) {
                                 for column_info in column_infos {
@@ -256,12 +256,12 @@ fn resolve_cte_columns(
         let anchor_cols = traverse_select_output(left, context)?;
 
         let mut recursive_context = context.clone();
-        let cte_name = cte.alias.name.value.clone();
+        let cte_name = normalize_identifier(&cte.alias.name);
         let mut context_anchor_cols = Vec::new();
         for (i, col) in anchor_cols.iter().enumerate() {
             let mut new_col = col.clone();
-            if let Some(alias) = cte.alias.columns.get(i) {
-                new_col.name = alias.name.value.clone();
+            if let Some(alias_def) = cte.alias.columns.get(i) {
+                new_col.name = normalize_identifier(&alias_def.name);
             }
             context_anchor_cols.push(new_col);
         }
@@ -308,19 +308,15 @@ fn resolve_table_factor(
 ) -> Result<(), String> {
     match relation {
         TableFactor::Table { name, alias, .. } => {
-            let ObjectNamePart::Identifier(table_ident) = name.0.last().unwrap() else {
-                panic!("Last part of name is not an identifier");
-            };
 
-            // If unquoted, look it up as lowercase. If quoted, strict.
-            let lookup_name = if table_ident.quote_style.is_some() {
-                table_ident.value.clone()
-            } else {
-                table_ident.value.to_lowercase()
-            };
+            let lookup_name = name
+                .0
+                .last()
+                .map(normalize_part)
+                .ok_or("Table name is empty")?;
 
             let target_alias = if let Some(alias_node) = alias {
-                alias_node.name.value.clone() // Aliases are case-insensitive references usually
+                normalize_identifier(&alias_node.name)
             } else {
                 lookup_name.clone()
             };
@@ -332,8 +328,8 @@ fn resolve_table_factor(
                         c.data_type.nullable = true;
                     }
                 }
-                working_tables.insert(target_alias.to_lowercase(), cols.clone());
-                local_scope_tables.push(target_alias.to_lowercase());
+                working_tables.insert(target_alias.clone(), cols.clone());
+                local_scope_tables.push(target_alias);
             }
         }
 
@@ -342,7 +338,7 @@ fn resolve_table_factor(
             alias: Some(alias_node),
             ..
         } => {
-            let alias_name = alias_node.name.value.clone();
+            let alias_name = normalize_identifier(&alias_node.name);
             let mut sub_cols = traverse_select_output(&subquery.body, all_tables)?;
 
             if force_nullable {

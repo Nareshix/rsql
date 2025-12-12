@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::ops::ControlFlow;
 
-use sqlparser::ast::{BinaryOperator, ColumnOption, CreateTable, Expr, Statement, visit_relations};
+use sqlparser::ast::{BinaryOperator, ColumnOption, CreateTable, Expr, ObjectNamePart, Statement, visit_relations};
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 
@@ -12,6 +12,20 @@ pub struct ColumnInfo {
     pub name: String,
     pub data_type: Type,
     pub check_constraint: Option<String>,
+}
+
+pub fn normalize_identifier(ident: &sqlparser::ast::Ident) -> String {
+    match ident.quote_style {
+        Some(_) => ident.value.clone(),     // Keep "MyTable" as "MyTable"
+        None => ident.value.to_lowercase(), // Convert MyTable -> mytable
+    }
+}
+
+pub fn normalize_part(part: &ObjectNamePart) -> String {
+    match part {
+        ObjectNamePart::Identifier(ident) => normalize_identifier(ident),
+        _ => part.to_string(), // Fallback for wildcards etc.
+    }
 }
 
 /// Bool type derived from CHECK constraint
@@ -103,7 +117,11 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
 
     for statement in ast {
         if let Statement::CreateTable(CreateTable { name, columns, .. }) = statement {
-            let table_name = name.to_string();
+            let table_name = name
+                .0
+                .last()
+                .map(normalize_part)
+                .unwrap_or(name.to_string());
 
             let table_columns = columns
                 .iter()
@@ -140,7 +158,7 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
                     );
 
                     ColumnInfo {
-                        name: col.name.value.clone(),
+                        name: normalize_identifier(&col.name),
                         data_type,
                         check_constraint: check_expr_str,
                     }
@@ -157,7 +175,12 @@ pub fn get_table_names(sql: &str) -> Vec<String> {
     let statements = Parser::parse_sql(&SQLiteDialect {}, sql).unwrap();
     let mut visited = vec![];
     let _ = visit_relations(&statements, |expr| {
-        visited.push(expr.to_string());
+        let name = expr
+            .0
+            .last()
+            .map(normalize_part)
+            .unwrap_or(expr.to_string());
+        visited.push(name);
         ControlFlow::<()>::Continue(())
     });
     visited
