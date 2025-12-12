@@ -13,3 +13,4 @@ quote = "1.0.42"
 proc-macro2 = "1.0.103"
 rsql-core = { path = "../rsql-core" }
 sqlformat = "0.5.0"
+type_inference ={ path = "../type_inference"}

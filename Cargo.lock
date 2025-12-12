@@ -112,6 +112,7 @@ dependencies = [
  "rsql-core",
  "sqlformat",
  "syn",
+ "type_inference",
 ]
 
 [[package]]
