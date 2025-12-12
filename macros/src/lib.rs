@@ -81,7 +81,6 @@ fn expand(
 
     let struct_name = &item_struct.ident;
 
-    // 1. Validate it has named fields
     let fields = match &mut item_struct.fields {
         syn::Fields::Named(named) => named,
         _ => {
@@ -97,7 +96,7 @@ fn expand(
     let mut standard_params = Vec::new();
     let mut generated_methods = Vec::new();
 
-    // 2. Iterate over existing fields (Before injecting __db)
+    // Iterate over existing fields (Before injecting __db)
     for field in fields.named.iter_mut() {
         let ident = field.ident.as_ref().unwrap();
 
@@ -105,12 +104,14 @@ fn expand(
         if let Some(sql_lit) = parse_sql_macro_type(&field.ty)? {
             let sql_query = format_sql(&sql_lit.value());
 
+            // Sql errors from sqlite
             if let Err(err_msg) = validate_sql_syntax_with_sqlite(&db_path, &sql_query) {
                 return Err(syn::Error::new(
                     sql_lit.span(),
                     err_msg.to_string(),
                 ));
             }
+            
 
             let doc_comment = format!(" **SQL**\n```sql\n{}", sql_query);
 
