@@ -1,7 +1,7 @@
 use libsqlite3_sys::{
-    self as ffi, SQLITE_OK, SQLITE_OPEN_CREATE, SQLITE_OPEN_READONLY, SQLITE_OPEN_READWRITE,
-    SQLITE_ROW, sqlite3, sqlite3_busy_timeout, sqlite3_close, sqlite3_column_text, sqlite3_errcode,
-    sqlite3_finalize, sqlite3_open, sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_step,
+    self as ffi, SQLITE_OK, SQLITE_OPEN_READONLY,
+    SQLITE_ROW, sqlite3, sqlite3_close, sqlite3_column_text, sqlite3_errcode,
+    sqlite3_finalize, sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_step,
     sqlite3_stmt,
 };
 use std::{
@@ -100,7 +100,7 @@ pub fn get_db_schema(db_path: &str) -> Result<Vec<String>, SqliteOpenErrors> {
             return Err(SqliteOpenErrors::SqliteFailure { code, error_msg });
         }
 
-        // 2. ADD TIMEOUT to stop "Database Locked" errors with VS Code
+        // ADD TIMEOUT to stop "Database Locked" errors with VS Code
         // sqlite3_busy_timeout(db, 2000); // Wait 2 seconds
 
         let sql = b"SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name\0";
