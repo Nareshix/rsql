@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use proc_macro::TokenStream;
 use quote::quote;
-use rsql_core::utility::utils::get_db_schema;
+use rsql_core::utility::utils::{get_db_schema, validate_sql_syntax_with_sqlite};
 use syn::{
     Data, DeriveInput, Fields, GenericParam, Ident, ItemStruct, Lifetime, LifetimeParam, LitStr,
     Type, parse_macro_input, parse_quote, spanned::Spanned,
@@ -105,6 +105,13 @@ fn expand(
         if let Some(sql_lit) = parse_sql_macro_type(&field.ty)? {
             let sql_query = format_sql(&sql_lit.value());
 
+            if let Err(err_msg) = validate_sql_syntax_with_sqlite(&db_path, &sql_query) {
+                return Err(syn::Error::new(
+                    sql_lit.span(),
+                    err_msg.to_string(),
+                ));
+            }
+
             let doc_comment = format!(" **SQL**\n```sql\n{}", sql_query);
 
             // --- IS SQL FIELD ---
@@ -191,7 +198,7 @@ fn parse_sql_macro_type(ty: &Type) -> syn::Result<Option<LitStr>> {
     if let Type::Macro(type_macro) = ty
         && type_macro.mac.path.is_ident("sql")
     {
-        let lit: LitStr = syn::parse2(type_macro.mac.tokens.clone()).map_err(|_| {
+        let lit = syn::parse2(type_macro.mac.tokens.clone()).map_err(|_| {
             syn::Error::new(
                 type_macro.mac.tokens.span(),
                 "sql!(...) must contain a string",

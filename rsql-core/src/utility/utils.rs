@@ -1,16 +1,15 @@
 use libsqlite3_sys::{
-    self as ffi, SQLITE_OK, SQLITE_ROW, sqlite3, sqlite3_close, sqlite3_column_text,
-    sqlite3_errcode, sqlite3_finalize, sqlite3_open, sqlite3_prepare_v2, sqlite3_step,
-    sqlite3_stmt,
+    self as ffi, SQLITE_OK, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_ROW, sqlite3,
+    sqlite3_close, sqlite3_column_text, sqlite3_errcode, sqlite3_finalize, sqlite3_open,
+    sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_step, sqlite3_stmt,
 };
 use std::{
-    ffi::{CStr, CString, c_char}, path::Path, ptr
+    ffi::{CStr, CString, c_char},
+    path::Path,
+    ptr,
 };
 
-use crate::errors::{
-    SqliteFailure,
-    connection::{SqliteOpenErrors, SqlitePrepareErrors},
-};
+use crate::errors::connection::{SqliteOpenErrors, SqlitePrepareErrors};
 
 pub enum RustTypes {
     Integer,
@@ -132,6 +131,52 @@ pub fn get_db_schema(db_path: &str) -> Result<Vec<String>, SqliteOpenErrors> {
     unsafe { sqlite3_close(db) };
 
     Ok(results)
+}
+
+pub fn validate_sql_syntax_with_sqlite(db_path: &str, sql: &str) -> Result<(), String> {
+    unsafe {
+        let c_db_path = CString::new(db_path)
+            .map_err(|_| "Invalid DB path (contains null byte)".to_string())?;
+        let c_sql =
+            CString::new(sql).map_err(|_| "Invalid SQL string (contains null byte)".to_string())?;
+
+        let mut db: *mut sqlite3 = ptr::null_mut();
+
+        let open_flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
+        let open_rc = sqlite3_open_v2(c_db_path.as_ptr(), &mut db, open_flags, ptr::null());
+
+        if open_rc != SQLITE_OK {
+            let err_msg = get_sqlite_failiure(db);
+            sqlite3_close(db);
+            return Err(format!(
+                "Error: {}. {}",
+                err_msg.0, err_msg.1
+            ));
+        }
+
+        let mut stmt = ptr::null_mut();
+        let mut tail = ptr::null();
+
+        let prepare_rc = sqlite3_prepare_v2(db, c_sql.as_ptr(), -1, &mut stmt, &mut tail);
+
+        let result = if prepare_rc == SQLITE_OK {
+            Ok(())
+        } else {
+            let err_msg = get_sqlite_failiure(db);
+            return Err(format!(
+                "Error: {} Failed to open database: {}",
+                err_msg.0, err_msg.1
+            ));
+        };
+
+        if !stmt.is_null() {
+            sqlite3_finalize(stmt);
+        }
+
+        sqlite3_close(db);
+
+        result
+    }
 }
 
 #[cfg(test)]
