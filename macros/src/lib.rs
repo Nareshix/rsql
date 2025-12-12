@@ -8,7 +8,7 @@ use proc_macro::TokenStream;
 use quote::quote;
 use rsql_core::utility::utils::{get_db_schema, validate_sql_syntax_with_sqlite};
 use syn::{
-    Data, DeriveInput, Fields, GenericParam, Ident, ItemStruct, Lifetime, LifetimeParam, LitStr,
+    Data, DeriveInput, Fields, GenericParam, Ident, ItemStruct, LifetimeParam, LitStr,
     Type, parse_macro_input, parse_quote, spanned::Spanned,
 };
 use type_inference::{
@@ -125,6 +125,7 @@ fn expand(
             };
 
             // binding_types will also give Ok([]) if there is no binding parameter
+            //TODO read up more proc_macro_span. i want ide to speicifclaly highlight the exact error
             let binding_types = match get_type_of_binding_parameters(&sql_query, &all_tables) {
                 Ok(types) => types,
                 Err(err) => {
