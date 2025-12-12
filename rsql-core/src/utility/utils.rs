@@ -78,7 +78,7 @@ pub unsafe fn prepare_stmt(
 }
 
 pub fn get_db_schema(db_path: &str) -> Result<Vec<String>, SqliteOpenErrors> {
-    // TODO, there can be abetter more robust way of handling paths. maybe a .env file?
+    // TODO, there can be abetter more robust way of handling paths. maybe a .env file?, current_exe() or current_dir()?
     if !Path::new(db_path).exists() {
         return Err(SqliteOpenErrors::SqliteFailure {
             code: 0,
