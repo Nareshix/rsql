@@ -253,6 +253,11 @@ fn expand(
                     }
                 });
             }
+            else if !select_types.is_empty() && binding_types.is_empty() {
+                //TODO
+            } else{
+                //TODO
+            }
         } else {
             let ty = &field.ty;
             standard_params.push(quote! { #ident: #ty });
