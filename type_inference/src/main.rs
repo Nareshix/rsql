@@ -41,20 +41,8 @@ fn main() {
     let sql = "CREATE TABLE users (id INTEGER, name TEXT, wow REAL);CREATE TABLE mom (id INTEGER NOT NULL, name TEXT NOT NULL, wow TEXT)";
     create_tables(sql, &mut all_tables);
 
-    // let sql = "";
-    // create_tables(sql, &mut all_tables);
-
-    // let sql = "Select 1 from users where wow in (?,?,?)";
-
-    // let x = get_type_of_binding_parameters(sql, &all_tables);
-    // println!("{:?}", x);
-    // println!("{onall_tables:#?}");
-    // let sql = "SELECT name FROM users, mom";
-    // let types = get_types_from_select(sql, &all_tables);
-    // println!("{:?}", types);
-
-    let sql = "SELECT * from moms; --";
-    let types = get_types_from_select(sql, &all_tables);
+let sql = "SELECT * from users where id = ?";
+    let types = get_type_of_binding_parameters(sql, &all_tables);
     println!("{:?}", types);
 
     // let sql = "SELECT * FROM users WHERE id = ?";

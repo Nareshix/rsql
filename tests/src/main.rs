@@ -9,8 +9,7 @@ struct OrdersItemCount {
     pub order_id: i32,
     pub num_items: i32,
 }
-
-#[lazy_sql]
+#[lazy_sql("tests/oi.db")]
 pub struct ShopDao {
     // 1. Complex Join
     q_complex_join: sql!(
@@ -28,10 +27,7 @@ pub struct ShopDao {
     q_low_stock: sql!("SELECT name FROM products WHERE stock < 20"),
 
     q_item_count: sql!(
-        "SELECT order_id, COUNT(*) AS num_items
-        FROM order_items
-        GROUP BY order_id
-        HAVING COUNT(*) > ?;"
+        "INSERT INTO USERS(USER_ID) VALUES(?)"
     ),
 
 }
@@ -40,31 +36,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let conn = LazyConnection::open("oi.db").unwrap();
     let mut dao = ShopDao::new(&conn);
 
+    dao.q_item_count(Some(5))?;
+    let x= dao;
 
-    let x = {
-        let stmt = dao.q_item_count()?;
-        stmt.bind_parameter(1, 0)?;
-        stmt.query(OrdersItemCount)
-    };
-    for i in x {
-        println!("{}", i?.num_items);
-    }
-    {
-        let stmt = dao.q_item_count()?;
-        stmt.bind_parameter(1, 50)?;
-        for row in stmt.query(OrdersItemCount) {
-            println!("  {:?}", row?);
-        }
-    }
+    // let x = {
+    //     let stmt = dao.q_item_count()?;
+    //     stmt.bind_parameter(1, 0)?;
+    //     stmt.query(OrdersItemCount)
+    // };
+    // for i in x {
+    //     println!("{}", i?.num_items);
+    // }
+    // {
+    //     let stmt = dao.q_item_count()?;
+    //     stmt.bind_parameter(1, 50)?;
+    //     for row in stmt.query(OrdersItemCount) {
+    //         println!("  {:?}", row?);
+    //     }
+    // }
 
-    {
-        println!("Case C (Count > 1):");
-        let stmt = dao.q_item_count()?;
-        stmt.bind_parameter(1, 1)?;
-        for row in stmt.query(OrdersItemCount) {
-            println!("  {:?}", row?);
-        }
-    }
+    // {
+    //     println!("Case C (Count > 1):");
+    //     let stmt = dao.q_item_count()?;
+    //     stmt.bind_parameter(1, 1)?;
+    //     for row in stmt.query(OrdersItemCount) {
+    //         println!("  {:?}", row?);
+    //     }
+    // }
 
     Ok(())
 }
