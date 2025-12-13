@@ -8,6 +8,7 @@ use libsqlite3_sys::{self as ffi, SQLITE_TRANSIENT, sqlite3_stmt};
 pub trait ToSql {
     /// - it is ok for it to be self consuming (tho it only applies to String)
     ///   because we are not gonna be using this rust type anymore
+    /// - Indexes start at 1
     ///# Safety
     ///
     /// Pass in the stmt pointer (not the address). it uses sqlite3_bind_* to bind it to the correct type

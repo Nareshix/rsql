@@ -26,6 +26,7 @@ impl Drop for PreparredStmt {
 }
 
 impl PreparredStmt {
+    /// indexes start at 1
     pub fn bind_parameter(&self, index: i32, value: impl ToSql) -> Result<(), SqliteFailure> {
         let code = unsafe { value.bind_to(self.stmt, index) };
 
