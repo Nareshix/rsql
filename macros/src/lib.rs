@@ -254,66 +254,65 @@ fn expand(
                         Ok(())
                     }
                 });
-} else if !select_types.is_empty() && binding_types.is_empty() {
-    let method_name = ident.to_string();
-    let pascal_name: String = method_name
-        .split('_')
-        .map(|s| {
-            let mut c = s.chars();
-            match c.next() {
-                None => String::new(),
-                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-            }
-        })
-        .collect();
+            } else if !select_types.is_empty() && binding_types.is_empty() {
+                let method_name = ident.to_string();
+                let pascal_name: String = method_name
+                    .split('_')
+                    .map(|s| {
+                        let mut c = s.chars();
+                        match c.next() {
+                            None => String::new(),
+                            Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                        }
+                    })
+                    .collect();
 
-    let struct_name = quote::format_ident!("{}", pascal_name);
-    let mapper_struct_name = quote::format_ident!("{}Mapper", pascal_name);
+                let struct_name = quote::format_ident!("{}", pascal_name);
+                let mapper_struct_name = quote::format_ident!("{}_", pascal_name);
 
-    re_exports.push(struct_name.clone());
+                re_exports.push(struct_name.clone());
 
-    let mut struct_fields = Vec::new();
+                let mut struct_fields = Vec::new();
 
-    for col in select_types.iter() {
-        let name = quote::format_ident!("{}", col.name);
+                for col in select_types.iter() {
+                    let name = quote::format_ident!("{}", col.name);
 
-        let base_ty = match col.data_type.base_type {
-            BaseType::Integer => quote! { i64 },
-            BaseType::Real => quote! { f64 },
-            BaseType::Text => quote! { String },
-            BaseType::Bool => quote! { bool },
-            _ => quote! { Vec<u8> },
-        };
+                    let base_ty = match col.data_type.base_type {
+                        BaseType::Integer => quote! { i64 },
+                        BaseType::Real => quote! { f64 },
+                        BaseType::Text => quote! { String },
+                        BaseType::Bool => quote! { bool },
+                        _ => quote! { Vec<u8> },
+                    };
 
-        let final_ty = if col.data_type.nullable {
-            quote! { Option<#base_ty> }
-        } else {
-            quote! { #base_ty }
-        };
+                    let final_ty = if col.data_type.nullable {
+                        quote! { Option<#base_ty> }
+                    } else {
+                        quote! { #base_ty }
+                    };
 
-        struct_fields.push(quote! { pub #name: #final_ty });
-    }
-
-    generated_structs.push(quote! {
-        #[derive(Debug, rsql::SqlMapping)]
-        pub struct #struct_name {
-            #(#struct_fields),*
-        }
-    });
-
-    // 2. Generate the method
-    generated_methods.push(quote! {
-        #[doc = #doc_comment]
-    pub fn #ident(&mut self) -> Result<rsql::internal_sqlite::efficient::rows_dao::Rows<#mapper_struct_name>, rsql::errors::SqlReadError> {
-            if self.#ident.stmt.is_null() {
-                unsafe {
-                    rsql::utility::utils::prepare_stmt(
-                        self.__db.db,
-                        &mut self.#ident.stmt,
-                        self.#ident.sql_query
-                     )?;
+                    struct_fields.push(quote! { pub #name: #final_ty });
                 }
-            }
+
+                generated_structs.push(quote! {
+                    #[derive(Debug, rsql::SqlMapping)]
+                    pub struct #struct_name {
+                        #(#struct_fields),*
+                    }
+                });
+
+                generated_methods.push(quote! {
+                #[doc = #doc_comment]
+                pub fn #ident(&mut self) -> Result<rsql::internal_sqlite::efficient::rows_dao::Rows<#mapper_struct_name>, rsql::errors::SqlReadError> {
+                        if self.#ident.stmt.is_null() {
+                            unsafe {
+                                rsql::utility::utils::prepare_stmt(
+                                    self.__db.db,
+                                    &mut self.#ident.stmt,
+                                    self.#ident.sql_query
+                                )?;
+                            }
+                        }
 
             let preparred_statement = rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt {
                 stmt: self.#ident.stmt,
@@ -322,7 +321,7 @@ fn expand(
             Ok(preparred_statement.query(#struct_name))
         }
     });
-}else {
+            } else {
                 //TODO
             }
         } else {
@@ -405,7 +404,7 @@ pub fn my_macro(input: TokenStream) -> TokenStream {
     let struct_name = &input.ident;
 
     let name_as_string = struct_name.to_string();
-    let new_name_string = format!("{}Mapper", name_as_string);
+    let new_name_string = format!("{}_", name_as_string);
     let mapper_struct_name = Ident::new(&new_name_string, struct_name.span());
 
     // TODO error handling
@@ -440,7 +439,7 @@ pub fn my_macro(input: TokenStream) -> TokenStream {
             type Output = #struct_name;
 
             #[inline]
-            unsafe fn map_row(&self, stmt: *mut libsqlite3_sys::sqlite3_stmt) -> Self::Output {
+            unsafe fn map_row(&self, stmt: *mut rsql::libsqlite3_sys::sqlite3_stmt) -> Self::Output {
                 #(#field_bindings)*
 
                 Self::Output {
