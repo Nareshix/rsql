@@ -307,14 +307,14 @@ fn expand(
                 }
 
                 generated_structs.push(quote! {
-                    #[derive(Debug)]
+                    #[derive(Clone, Copy, Debug)]
                     pub struct #struct_name {
                         #(#struct_fields),*
                     }
                 });
 
                 generated_structs.push(quote! {
-                    #[derive(Debug)]
+                    #[derive(Clone, Copy, Debug)]
                     pub struct #mapper_name;
 
                     impl rsql::traits::row_mapper::RowMapper for #mapper_name {
@@ -459,7 +459,6 @@ pub fn my_macro(input: TokenStream) -> TokenStream {
 
     let field_names = fields.iter().map(|f| f.ident.as_ref().unwrap());
     let expanded = quote! {
-        // 1. Make the Mapper struct public
         #[derive(Clone, Copy, Debug)]
         pub struct #mapper_struct_name;
 
