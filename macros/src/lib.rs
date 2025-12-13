@@ -255,8 +255,6 @@ fn expand(
                     }
                 });
             } else if !select_types.is_empty() && binding_types.is_empty() {
-
-
                 let method_name = ident.to_string();
                 let pascal_name: String = method_name
                     .split('_')
@@ -284,10 +282,10 @@ fn expand(
 
                     let base_ty = match col.data_type.base_type {
                         BaseType::Integer => quote! { i64 },
-                        BaseType::Real    => quote! { f64 },
-                        BaseType::Text    => quote! { String },
-                        BaseType::Bool    => quote! { bool },
-                        _                 => quote! { Vec<u8> },
+                        BaseType::Real => quote! { f64 },
+                        BaseType::Text => quote! { String },
+                        BaseType::Bool => quote! { bool },
+                        _ => quote! { Vec<u8> },
                     };
 
                     let final_ty = if col.data_type.nullable {
@@ -350,7 +348,7 @@ fn expand(
                         Ok(preparred_statement.query(#mapper_name))
                     }
                 });
-            }else {
+            } else {
                 //TODO
             }
         } else {
