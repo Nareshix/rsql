@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use sqlparser::ast::{
-    BinaryOperator, DataType, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, Ident, Value,
+    BinaryOperator, DataType, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, Value,
 };
 
 use crate::{

@@ -1,14 +1,8 @@
 use rsql::{
-    SqlMapping,
     internal_sqlite::efficient::lazy_connection::LazyConnection,
     lazy_sql,
 };
 
-#[derive(Debug, SqlMapping)]
-struct OrdersItemCount {
-    pub order_id: i32,
-    pub num_items: i32,
-}
 #[lazy_sql("tests/oi.db")]
 pub struct ShopDao {
     // 1. Complex Join
@@ -24,7 +18,7 @@ pub struct ShopDao {
         GROUP BY o.order_id;"
     ),
 
-    q_low_stock: sql!("SELECT name FROM products WHERE stock < 20"),
+    q_low_stock: sql!("SELECT name  AS mom FROM products WHERE stock < 20"),
 
     q_item_count: sql!(
         "INSERT INTO USERS(USER_ID) VALUES(?)"
@@ -36,8 +30,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let conn = LazyConnection::open("oi.db").unwrap();
     let mut dao = ShopDao::new(&conn);
 
-    dao.q_item_count(Some(5))?;
-    let x= dao;
+    let x= dao.q_low_stock()?;
+    for i in x {
+        let xx = i?;
+        println!("{}", xx.mom);
+
+
+    }
 
     // let x = {
     //     let stmt = dao.q_item_count()?;

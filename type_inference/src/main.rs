@@ -31,7 +31,7 @@ mod table;
 // }
 
 use crate::{
-    binding_patterns::get_type_of_binding_parameters, select_patterns::get_types_from_select, table::create_tables
+    select_patterns::get_types_from_select, table::create_tables
 };
 use std::collections::HashMap;
 
@@ -42,8 +42,8 @@ fn main() {
     create_tables(sql, &mut all_tables);
 
 let sql = "SELECT * from users where id = ?";
-    let types = get_type_of_binding_parameters(sql, &all_tables);
-    println!("{:?}", types);
+    let types = get_types_from_select(sql, &all_tables);
+    println!("{:#?}", types);
 
     // let sql = "SELECT * FROM users WHERE id = ?";
     // let x = get_type_of_binding_parameters(sql, &all_tables).unwrap();

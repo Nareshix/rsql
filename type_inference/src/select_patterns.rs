@@ -1,6 +1,6 @@
 use sqlparser::{
     ast::{
-        Cte, Expr, JoinOperator, ObjectNamePart, SelectItem, SelectItemQualifiedWildcardKind,
+        Cte, Expr, JoinOperator, SelectItem, SelectItemQualifiedWildcardKind,
         SetExpr, SetOperator, Statement, TableFactor,
     },
     dialect::SQLiteDialect,
