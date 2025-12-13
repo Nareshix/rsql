@@ -321,9 +321,107 @@ fn expand(
             Ok(preparred_statement.query(#struct_name))
         }
     });
-            } else {
-                //TODO
+} else {
+
+                let method_name = ident.to_string();
+                let pascal_name: String = method_name
+                    .split('_')
+                    .map(|s| {
+                        let mut c = s.chars();
+                        match c.next() {
+                            None => String::new(),
+                            Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                        }
+                    })
+                    .collect();
+
+                let output_struct_name = quote::format_ident!("{}", pascal_name);
+                let mapper_struct_name = quote::format_ident!("{}_", pascal_name);
+
+                re_exports.push(output_struct_name.clone());
+
+                let mut struct_fields = Vec::new();
+
+                for col in select_types.iter() {
+                    let name = quote::format_ident!("{}", col.name);
+
+                    let base_ty = match col.data_type.base_type {
+                        BaseType::Integer => quote! { i64 },
+                        BaseType::Real => quote! { f64 },
+                        BaseType::Text => quote! { String },
+                        BaseType::Bool => quote! { bool },
+                        _ => quote! { Vec<u8> },
+                    };
+
+                    let final_ty = if col.data_type.nullable {
+                        quote! { Option<#base_ty> }
+                    } else {
+                        quote! { #base_ty }
+                    };
+
+                    struct_fields.push(quote! { pub #name: #final_ty });
+                }
+
+                generated_structs.push(quote! {
+                    #[derive(Debug, rsql::SqlMapping)]
+                    pub struct #output_struct_name {
+                        #(#struct_fields),*
+                    }
+                });
+
+                let mut method_args = Vec::new();
+                let mut bind_calls = Vec::new();
+
+                for (i, bind_type) in binding_types.iter().enumerate() {
+                    let arg_name = quote::format_ident!("arg_{}", i);
+                    let bind_index = (i + 1) as i32;
+
+                    let rust_base_type = match bind_type.base_type {
+                        BaseType::Integer => quote! { i64 },
+                        BaseType::Real => quote! { f64 },
+                        BaseType::Bool => quote! { bool },
+                        BaseType::Text => quote! { &str },
+                        _ => quote! { Vec<u8> },
+                    };
+
+                    let final_type = if bind_type.nullable {
+                        quote! { Option<#rust_base_type> }
+                    } else {
+                        quote! { #rust_base_type }
+                    };
+
+                    method_args.push(quote! { #arg_name: #final_type });
+
+                    bind_calls.push(quote! {
+                        preparred_statement.bind_parameter(#bind_index, #arg_name)?;
+                    });
+                }
+
+                generated_methods.push(quote! {
+                    #[doc = #doc_comment]
+                    pub fn #ident(&mut self, #(#method_args),*) -> Result<rsql::internal_sqlite::efficient::rows_dao::Rows<#mapper_struct_name>, rsql::errors::SqlReadErrorBindings> {
+                        if self.#ident.stmt.is_null() {
+                            unsafe {
+                                rsql::utility::utils::prepare_stmt(
+                                    self.__db.db,
+                                    &mut self.#ident.stmt,
+                                    self.#ident.sql_query
+                                )?;
+                            }
+                        }
+
+                        let mut preparred_statement = rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt {
+                            stmt: self.#ident.stmt,
+                            conn: self.__db.db,
+                        };
+
+                        #(#bind_calls)*
+
+                        Ok(preparred_statement.query(#output_struct_name))
+                    }
+                });
             }
+            // normal non sql!()
         } else {
             let ty = &field.ty;
             standard_params.push(quote! { #ident: #ty });

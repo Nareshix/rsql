@@ -43,3 +43,13 @@ pub enum SqlReadError {
     #[error("Failed to prepare statement: {0}")]
     Prepare(#[from] SqlitePrepareErrors),
 }
+
+#[derive(thiserror::Error, Debug)]
+pub enum SqlReadErrorBindings {
+    #[error("Failed to prepare statement: {0}")]
+    Prepare(#[from] SqlitePrepareErrors),
+
+    #[error("Failed to Bind: {0}")]
+    Bind(#[from] SqliteFailure),
+
+}
