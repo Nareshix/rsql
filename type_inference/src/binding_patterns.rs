@@ -1236,6 +1236,7 @@ fn infer_cte_columns(
                 name: col_name,
                 data_type: deduced_type,
                 check_constraint: None,
+                has_default: false
             });
         }
         return cols;
@@ -1387,6 +1388,7 @@ fn traverse_set_expr(
                             name: alias.value.clone(),
                             data_type: derived_type,
                             check_constraint: None,
+                            has_default:false
                         });
                     }
                     _ => {}

@@ -121,6 +121,7 @@ pub fn traverse_select_output(
                             name: normalize_identifier(alias),
                             data_type: t,
                             check_constraint: None,
+                            has_default: false
                         });
                     }
                     SelectItem::UnnamedExpr(expr) => {
@@ -136,6 +137,7 @@ pub fn traverse_select_output(
                             name,
                             data_type: t,
                             check_constraint: None,
+                            has_default: false
                         });
                     }
                     SelectItem::Wildcard(_) => {
@@ -214,6 +216,7 @@ pub fn traverse_select_output(
                     name: format!("col_{}", i),
                     data_type: t,
                     check_constraint: None,
+                    has_default: false
                 });
             }
 

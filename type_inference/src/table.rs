@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::ops::ControlFlow;
 
-use sqlparser::ast::{BinaryOperator, ColumnOption, CreateTable, Expr, ObjectNamePart, Statement, visit_relations};
+use sqlparser::ast::{
+    BinaryOperator, ColumnOption, CreateTable, Expr, ObjectNamePart, Statement, visit_relations,
+};
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 
@@ -12,6 +14,7 @@ pub struct ColumnInfo {
     pub name: String,
     pub data_type: Type,
     pub check_constraint: Option<String>,
+    pub has_default: bool,
 }
 
 pub fn normalize_identifier(ident: &sqlparser::ast::Ident) -> String {
@@ -129,6 +132,7 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
                     let mut check_expr_str = None;
                     let mut nullable = true;
                     let mut is_detected_boolean = false;
+                    let mut is_default = false;
 
                     for option_def in &col.options {
                         match &option_def.option {
@@ -147,6 +151,9 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
                             } => {
                                 // TODO
                             }
+                            ColumnOption::Default(_) => {
+                                is_default = true
+                            }
                             _ => {}
                         }
                     }
@@ -161,6 +168,7 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
                         name: normalize_identifier(&col.name),
                         data_type,
                         check_constraint: check_expr_str,
+                        has_default: is_default
                     }
                 })
                 .collect();
