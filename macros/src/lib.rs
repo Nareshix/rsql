@@ -8,8 +8,10 @@ use proc_macro::TokenStream;
 use quote::quote;
 use rsql_core::utility::utils::{get_db_schema, validate_sql_syntax_with_sqlite};
 use syn::{
-    Data, DeriveInput, Fields, GenericParam, Ident, ItemStruct, LifetimeParam, LitStr, Type,
-    parse_macro_input, parse_quote, spanned::Spanned,
+    Data, DeriveInput, Fields, GenericParam, Ident, ItemStruct, LifetimeParam, LitStr, Token, Type,
+    parse::{Parse, ParseStream},
+    parse_macro_input, parse_quote,
+    spanned::Spanned,
 };
 use type_inference::{
     binding_patterns::get_type_of_binding_parameters, expr::BaseType,
@@ -31,6 +33,54 @@ pub fn query(input: TokenStream) -> TokenStream {
     quote! { #parsed_input }.into()
 }
 
+struct RuntimeSqlInput {
+    return_type: Option<Type>,
+    sql: syn::LitStr,
+    args: Vec<Type>,
+}
+
+impl syn::parse::Parse for RuntimeSqlInput {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let return_type;
+        let sql;
+
+        if input.peek(syn::LitStr) {
+            // sql_runtime!("UPDATE...", arg, arg)
+            return_type = None;
+            sql = input.parse()?;
+        } else {
+            //  sql_runtime!(UserDTO, "SELECT...", arg, arg)
+            return_type = Some(input.parse()?);
+            input.parse::<syn::Token![,]>()?; // Eat comma
+            sql = input.parse()?;
+        }
+
+        let mut args = Vec::new();
+        while !input.is_empty() {
+            input.parse::<syn::Token![,]>()?; // Eat comma
+            if input.is_empty() {
+                break;
+            }
+            args.push(input.parse()?);
+        }
+
+        Ok(RuntimeSqlInput {
+            return_type,
+            sql,
+            args,
+        })
+    }
+}
+
+fn parse_runtime_macro(ty: &syn::Type) -> syn::Result<Option<RuntimeSqlInput>> {
+    if let syn::Type::Macro(type_macro) = ty
+        && type_macro.mac.path.is_ident("sql_runtime")
+    {
+        let parsed: RuntimeSqlInput = syn::parse2(type_macro.mac.tokens.clone())?;
+        return Ok(Some(parsed));
+    }
+    Ok(None)
+}
 #[proc_macro_attribute]
 pub fn lazy_sql(args: TokenStream, input: TokenStream) -> TokenStream {
     let path_lit = match syn::parse::<syn::LitStr>(args) {
@@ -38,7 +88,7 @@ pub fn lazy_sql(args: TokenStream, input: TokenStream) -> TokenStream {
         Err(_) => {
             let err = syn::Error::new(
                 proc_macro2::Span::call_site(),
-                "lazy_sql requires a path argument, e.g., #[lazy_sql(\"db.sqlite\")]",
+                "lazy_sql requires a path argument of sql file or db file., e.g., #[lazy_sql(\"db.sql\")] or #[lazy_sql(\"db.sqlite\")] ",
             );
 
             let err_tokens = err.to_compile_error();
@@ -321,8 +371,7 @@ fn expand(
             Ok(preparred_statement.query(#struct_name))
         }
     });
-} else {
-
+            } else {
                 let method_name = ident.to_string();
                 let pascal_name: String = method_name
                     .split('_')
@@ -421,8 +470,109 @@ fn expand(
                     }
                 });
             }
-            // normal non sql!()
-        } else {
+        } else if let Some(runtime_input) = parse_runtime_macro(&field.ty)? {
+            let sql_lit = runtime_input.sql;
+
+            field.ty = parse_quote!(rsql::internal_sqlite::efficient::lazy_statement::LazyStmt);
+
+            sql_assignments.push(quote! {
+                #ident: rsql::internal_sqlite::efficient::lazy_statement::LazyStmt {
+                    sql_query: #sql_lit,
+                    stmt: std::ptr::null_mut(),
+                }
+            });
+
+            let mut method_args = Vec::new();
+            let mut bind_calls = Vec::new();
+
+            for (i, arg_type) in runtime_input.args.iter().enumerate() {
+                let arg_name = quote::format_ident!("arg_{}", i);
+                let bind_index = (i + 1) as i32;
+
+                method_args.push(quote! { #arg_name: #arg_type });
+
+                bind_calls.push(quote! {
+                    preparred_statement.bind_parameter(#bind_index, #arg_name)?;
+                });
+            }
+
+            let doc_comment = " **Runtime SQL**\nUnchecked query.".to_string();
+
+            if let Some(ret_type) = runtime_input.return_type {
+                let mapper_type = if let syn::Type::Path(type_path) = &ret_type {
+                    if let Some(segment) = type_path.path.segments.last() {
+                        let type_name = segment.ident.to_string();
+                        let primitives = [
+                            "i64", "i32", "u64", "u32", "f64", "f32", "bool", "String", "Option",
+                        ];
+
+                        if primitives.iter().any(|&p| type_name.starts_with(p)) {
+                            quote! { #ret_type }
+                        } else {
+                            let new_ident = quote::format_ident!("{}_", segment.ident);
+                            quote! { #new_ident }
+                        }
+                    } else {
+                        quote! { #ret_type }
+                    }
+                } else {
+                    quote! { #ret_type }
+                };
+
+                generated_methods.push(quote! {
+                    #[doc = #doc_comment]
+                    // SELECT
+                    pub fn #ident(&mut self, #(#method_args),*) -> Result<rsql::internal_sqlite::efficient::rows_dao::Rows<#mapper_type>, rsql::errors::SqlReadErrorBindings> {
+                        if self.#ident.stmt.is_null() {
+                            unsafe {
+                                rsql::utility::utils::prepare_stmt(
+                                    self.__db.db,
+                                    &mut self.#ident.stmt,
+                                    self.#ident.sql_query
+                                )?;
+                            }
+                        }
+
+                        let mut preparred_statement = rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt {
+                            stmt: self.#ident.stmt,
+                            conn: self.__db.db,
+                        };
+
+                        #(#bind_calls)*
+
+                        Ok(preparred_statement.query(#mapper_type))
+                    }
+                });
+            } else {
+                // Non SELECT
+                generated_methods.push(quote! {
+                    #[doc = #doc_comment]
+                    pub fn #ident(&mut self, #(#method_args),*) -> Result<(), rsql::errors::SqlWriteBindingError> {
+                        if self.#ident.stmt.is_null() {
+                            unsafe {
+                                rsql::utility::utils::prepare_stmt(
+                                    self.__db.db,
+                                    &mut self.#ident.stmt,
+                                    self.#ident.sql_query
+                                )?;
+                            }
+                        }
+
+                        let mut preparred_statement = rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt {
+                            stmt: self.#ident.stmt,
+                            conn: self.__db.db,
+                        };
+
+                        #(#bind_calls)*
+
+                        preparred_statement.step()?;
+                        Ok(())
+                    }
+                });
+            }
+        }
+        // normal struct and field
+        else {
             let ty = &field.ty;
             standard_params.push(quote! { #ident: #ty });
             standard_assignments.push(quote! { #ident });
