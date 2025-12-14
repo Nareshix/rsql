@@ -2,16 +2,15 @@ mod execute;
 mod query;
 mod utils;
 
-use std::collections::HashMap;
+use std::{collections::HashMap, env, path::Path};
 
 use proc_macro::TokenStream;
+use proc_macro2::Span;
 use quote::quote;
 use rsql_core::utility::utils::{get_db_schema, validate_sql_syntax_with_sqlite};
 use syn::{
-    Data, DeriveInput, Fields, GenericParam, Ident, ItemStruct, LifetimeParam, LitStr, Token, Type,
-    parse::{Parse, ParseStream},
-    parse_macro_input, parse_quote,
-    spanned::Spanned,
+    Data, DeriveInput, Fields, GenericParam, Ident, ItemStruct, LifetimeParam, LitStr, Type,
+    parse_macro_input, parse_quote, spanned::Spanned,
 };
 use type_inference::{
     binding_patterns::get_type_of_binding_parameters, expr::BaseType,
@@ -103,10 +102,31 @@ pub fn lazy_sql(args: TokenStream, input: TokenStream) -> TokenStream {
         }
     };
 
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("No MANIFEST_DIR");
+    let full_path = Path::new(&manifest_dir).join(path_lit.value());
+    let full_path_str = full_path.to_str().expect("Invalid path string");
+
+    let absolute_path_lit = syn::LitStr::new(full_path_str, Span::call_site());
+
     let mut item_struct = parse_macro_input!(input as ItemStruct);
 
-    match expand(&mut item_struct, &path_lit) {
-        Ok(output) => output.into(),
+    match expand(&mut item_struct, &absolute_path_lit) {
+        Ok(output) => {
+            let manifest_dir =
+                env::var("CARGO_MANIFEST_DIR").expect("Could not find CARGO_MANIFEST_DIR");
+
+            let full_path = Path::new(&manifest_dir).join(path_lit.value());
+            let full_path_str = full_path.to_str().expect("Path contains invalid Unicode");
+
+            let final_output = quote! {
+                #output
+
+                // This forces Cargo to watch the file for changes
+                const _: &[u8] = include_bytes!(#full_path_str);
+            };
+
+            final_output.into()
+        }
         Err(err) => {
             let err_tokens = err.to_compile_error();
             err_tokens.into()
