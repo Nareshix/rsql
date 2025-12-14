@@ -47,6 +47,16 @@ impl ToSql for f64 {
     }
 }
 
+impl ToSql for bool {
+    unsafe fn bind_to(self, stmt: *mut sqlite3_stmt, index: i32) -> i32 {
+        // true as i32 == 1
+        // false as i32 == 0
+        let value = self as i32;
+
+        unsafe { ffi::sqlite3_bind_int(stmt, index, value) }
+    }
+}
+
 impl<T: ToSql> ToSql for Option<T> {
     unsafe fn bind_to(self, stmt: *mut sqlite3_stmt, index: i32) -> i32 {
         match self {

@@ -41,6 +41,13 @@ impl FromSql for i64 {
     }
 }
 
+impl FromSql for bool {
+    unsafe fn from_sql(stmt: *mut sqlite3_stmt, index: i32) -> Self {
+        let val = unsafe { libsqlite3_sys::sqlite3_column_int(stmt, index) };
+        val != 0
+    }
+}
+
 impl<T: FromSql> FromSql for Option<T> {
     unsafe fn from_sql(stmt: *mut sqlite3_stmt, index: i32) -> Self {
         let column_type = unsafe { sqlite3_column_type(stmt, index) };
