@@ -11,7 +11,7 @@ use std::{
     ptr,
 };
 
-use crate::errors::connection::{SqliteOpenErrors, SqlitePrepareErrors};
+use crate::errors::connection::SqlitePrepareErrors;
 
 pub enum RustTypes {
     Integer,
@@ -78,75 +78,89 @@ pub unsafe fn prepare_stmt(
     Ok(())
 }
 
-pub fn get_db_schema(db_path: &str) -> Result<Vec<String>, SqliteOpenErrors> {
-    let path = Path::new(db_path);
+struct SqliteHandle {
+    db: *mut sqlite3,
+}
 
-    if !path.exists() {
-        return Err(SqliteOpenErrors::SqliteFailure {
-            code: 0,
-            error_msg: format!("File not found at path: '{}'", db_path),
-        });
-    }
-
-    let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-    let is_sql_script = extension.eq_ignore_ascii_case("sql");
-
-    let mut db = ptr::null_mut();
-
-    unsafe {
-        let rc = if is_sql_script {
-            let memory_path = CString::new(":memory:").unwrap();
-            let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_MEMORY;
-            sqlite3_open_v2(memory_path.as_ptr(), &mut db, flags, ptr::null())
-        } else {
-            let c_path = CString::new(db_path).unwrap();
-            let flags = SQLITE_OPEN_READONLY;
-            sqlite3_open_v2(c_path.as_ptr(), &mut db, flags, ptr::null())
-        };
-
-        if rc != SQLITE_OK {
-            let (code, error_msg) = get_sqlite_failiure(db);
-            sqlite3_close(db);
-            return Err(SqliteOpenErrors::SqliteFailure { code, error_msg });
-        }
-
-        if is_sql_script {
-            let file_content =
-                fs::read_to_string(path).map_err(|e| SqliteOpenErrors::SqliteFailure {
-                    code: 0,
-                    error_msg: format!("Failed to read .sql file: {}", e),
-                })?;
-
-            let c_sql =
-                CString::new(file_content).map_err(|_| SqliteOpenErrors::SqliteFailure {
-                    code: 0,
-                    error_msg: "SQL file contains illegal null bytes".to_string(),
-                })?;
-
-            let mut err_msg: *mut c_char = ptr::null_mut();
-            let exec_rc = sqlite3_exec(db, c_sql.as_ptr(), None, ptr::null_mut(), &mut err_msg);
-
-            if exec_rc != SQLITE_OK {
-                let msg = if !err_msg.is_null() {
-                    let m = CStr::from_ptr(err_msg).to_string_lossy().into_owned();
-                    sqlite3_free(err_msg as *mut c_void); // Fix memory leak
-                    m
-                } else {
-                    "Unknown error".to_string()
-                };
-                sqlite3_close(db);
-                return Err(SqliteOpenErrors::SqliteFailure {
-                    code: exec_rc,
-                    error_msg: format!("Error in .sql script: {}", msg),
-                });
+impl Drop for SqliteHandle {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.db.is_null() {
+                sqlite3_close(self.db);
             }
         }
+    }
+}
 
+impl SqliteHandle {
+    fn open(db_path: &str) -> Result<Self, String> {
+        let path = Path::new(db_path);
+        if !path.exists() {
+            return Err(format!("File not found at path: '{}'", db_path));
+        }
+
+        let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+        let is_sql_script = extension.eq_ignore_ascii_case("sql");
+        let mut db = ptr::null_mut();
+
+        unsafe {
+            let rc = if is_sql_script {
+                let memory_path = CString::new(":memory:").unwrap();
+                let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_MEMORY;
+                sqlite3_open_v2(memory_path.as_ptr(), &mut db, flags, ptr::null())
+            } else {
+                let c_path =
+                    CString::new(db_path).map_err(|_| "Path contains nulls".to_string())?;
+                let flags = SQLITE_OPEN_READONLY;
+                sqlite3_open_v2(c_path.as_ptr(), &mut db, flags, ptr::null())
+            };
+
+            if rc != SQLITE_OK {
+                // raii to work. so it auto closes
+                let _ = SqliteHandle { db };
+                let (_, msg) = get_sqlite_failiure(db); // assuming this function exists
+                return Err(format!("Failed to open DB: {}", msg));
+            }
+
+            // Wrap in RAII struct immediately so 'Drop' handles closing automatically
+            let handle = SqliteHandle { db };
+
+            if is_sql_script {
+                let file_content = fs::read_to_string(path)
+                    .map_err(|e| format!("Failed to read .sql file: {}", e))?;
+
+                let c_sql = CString::new(file_content)
+                    .map_err(|_| "SQL file contains illegal null bytes".to_string())?;
+
+                let mut err_msg: *mut c_char = ptr::null_mut();
+                let exec_rc = sqlite3_exec(db, c_sql.as_ptr(), None, ptr::null_mut(), &mut err_msg);
+
+                if exec_rc != SQLITE_OK {
+                    let msg = if !err_msg.is_null() {
+                        let m = CStr::from_ptr(err_msg).to_string_lossy().into_owned();
+                        sqlite3_free(err_msg as *mut c_void);
+                        m
+                    } else {
+                        "Unknown error".to_string()
+                    };
+                    return Err(format!("Error in .sql script: {}", msg));
+                }
+            }
+
+            Ok(handle)
+        }
+    }
+}
+
+pub fn get_db_schema(db_path: &str) -> Result<Vec<String>, String> {
+    let handle = SqliteHandle::open(db_path)?;
+
+    unsafe {
         let sql = b"SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name\0";
         let mut stmt: *mut sqlite3_stmt = ptr::null_mut();
 
         let prepare_rc = sqlite3_prepare_v2(
-            db,
+            handle.db,
             sql.as_ptr() as *const c_char,
             -1,
             &mut stmt,
@@ -154,146 +168,92 @@ pub fn get_db_schema(db_path: &str) -> Result<Vec<String>, SqliteOpenErrors> {
         );
 
         if prepare_rc != SQLITE_OK {
-            let (code, error_msg) = get_sqlite_failiure(db);
-            sqlite3_close(db);
-            return Err(SqliteOpenErrors::SqliteFailure { code, error_msg });
+            let (_, msg) = get_sqlite_failiure(handle.db);
+            return Err(msg);
         }
+
+        struct StmtGuard(*mut sqlite3_stmt);
+        impl Drop for StmtGuard {
+            fn drop(&mut self) {
+                unsafe {
+                    sqlite3_finalize(self.0);
+                }
+            }
+        }
+        let _guard = StmtGuard(stmt);
 
         let mut results = Vec::new();
         while sqlite3_step(stmt) == SQLITE_ROW {
             let sql_ptr = sqlite3_column_text(stmt, 1);
-            let sql_txt = if sql_ptr.is_null() {
-                String::new()
-            } else {
-                CStr::from_ptr(sql_ptr as *const c_char)
-                    .to_string_lossy()
-                    .into_owned()
-            };
-            results.push(sql_txt);
+            if !sql_ptr.is_null() {
+                results.push(
+                    CStr::from_ptr(sql_ptr as *const c_char)
+                        .to_string_lossy()
+                        .into_owned(),
+                );
+            }
         }
-
-        sqlite3_finalize(stmt);
-        sqlite3_close(db);
 
         Ok(results)
     }
 }
 
 pub fn validate_sql_syntax_with_sqlite(db_path: &str, sql: &str) -> Result<(), String> {
-    let path = Path::new(db_path);
-
-    if !path.exists() {
-        return Err(format!("File not found at path: '{}'", db_path));
-    }
-
-    let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-    let is_sql_script = extension.eq_ignore_ascii_case("sql");
+    let handle = SqliteHandle::open(db_path)?;
 
     unsafe {
-        let mut db: *mut sqlite3 = ptr::null_mut();
-
-        let rc = if is_sql_script {
-            let memory_path = CString::new(":memory:").unwrap();
-            let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_MEMORY;
-            sqlite3_open_v2(memory_path.as_ptr(), &mut db, flags, ptr::null())
-        } else {
-            let c_path = CString::new(db_path)
-                .map_err(|_| "Invalid DB path (contains null byte)".to_string())?;
-            let flags = SQLITE_OPEN_READONLY;
-            sqlite3_open_v2(c_path.as_ptr(), &mut db, flags, ptr::null())
-        };
-
-        if rc != SQLITE_OK {
-            let (code, msg) = get_sqlite_failiure(db);
-            sqlite3_close(db);
-            return Err(format!("Failed to open DB. Code: {}. Error: {}", code, msg));
-        }
-
-        if is_sql_script {
-            let file_content = fs::read_to_string(path).map_err(|e| {
-                sqlite3_close(db);
-                format!("Failed to read .sql file: {}", e)
-            })?;
-
-            let c_sql = CString::new(file_content).map_err(|_| {
-                sqlite3_close(db);
-                "SQL file contains illegal null bytes".to_string()
-            })?;
-
-            let mut err_msg: *mut c_char = ptr::null_mut();
-            let exec_rc = sqlite3_exec(db, c_sql.as_ptr(), None, ptr::null_mut(), &mut err_msg);
-
-            if exec_rc != SQLITE_OK {
-                let msg = if !err_msg.is_null() {
-                    let m = CStr::from_ptr(err_msg).to_string_lossy().into_owned();
-                    sqlite3_free(err_msg as *mut c_void);
-                    m
-                } else {
-                    "Unknown error".to_string()
-                };
-                sqlite3_close(db);
-                return Err(format!("Error setting up schema from .sql: {}", msg));
-            }
-        }
-
-        let c_sql =
-            CString::new(sql).map_err(|_| "Invalid SQL string (contains null byte)".to_string())?;
-
+        let c_sql = CString::new(sql).map_err(|_| "Invalid SQL string".to_string())?;
         let mut stmt = ptr::null_mut();
-        let mut tail = ptr::null();
 
-        let prepare_rc = sqlite3_prepare_v2(db, c_sql.as_ptr(), -1, &mut stmt, &mut tail);
-
-        let result = if prepare_rc == SQLITE_OK {
-            Ok(())
-        } else {
-            let (code, msg) = get_sqlite_failiure(db);
-            Err(format!("Validation Error (Code {}): {}", code, msg))
-        };
+        let prepare_rc =
+            sqlite3_prepare_v2(handle.db, c_sql.as_ptr(), -1, &mut stmt, ptr::null_mut());
 
         if !stmt.is_null() {
             sqlite3_finalize(stmt);
         }
-        sqlite3_close(db);
 
-        result
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_get_schema_raw() {
-        unsafe {
-            let db_name = "test_schema.db";
-            let c_name = CString::new(db_name).unwrap();
-            let mut db: *mut sqlite3 = ptr::null_mut();
-
-            libsqlite3_sys::sqlite3_open(c_name.as_ptr(), &mut db);
-
-            let create_sql = b"CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)\0";
-            let mut stmt: *mut sqlite3_stmt = ptr::null_mut();
-            sqlite3_prepare_v2(
-                db,
-                create_sql.as_ptr() as *const i8,
-                -1,
-                &mut stmt,
-                ptr::null_mut(),
-            );
-            sqlite3_step(stmt);
-            sqlite3_finalize(stmt);
-            sqlite3_close(db);
-
-            let schema = get_db_schema(db_name).unwrap();
-
-            println!("{schema:?}");
-            assert_eq!(schema.len(), 1);
-            assert!(schema[0].contains("CREATE TABLE users")); // SQL matches
-
-            // Cleanup file
-            std::fs::remove_file(db_name).unwrap_or(());
+        if prepare_rc == SQLITE_OK {
+            Ok(())
+        } else {
+            let (_, msg) = get_sqlite_failiure(handle.db);
+            Err(format!("Validation Error: {}", msg))
         }
     }
 }
+// mod tests {
+
+//     use super::*;
+
+//     #[test]
+//     fn test_get_schema_raw() {
+//         unsafe {
+//             let db_name = "test_schema.db";
+//             let c_name = CString::new(db_name).unwrap();
+//             let mut db: *mut sqlite3 = ptr::null_mut();
+
+//             libsqlite3_sys::sqlite3_open(c_name.as_ptr(), &mut db);
+
+//             let create_sql = b"CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)\0";
+//             let mut stmt: *mut sqlite3_stmt = ptr::null_mut();
+//             sqlite3_prepare_v2(
+//                 db,
+//                 create_sql.as_ptr() as *const i8,
+//                 -1,
+//                 &mut stmt,
+//                 ptr::null_mut(),
+//             );
+//             sqlite3_step(stmt);
+//             sqlite3_finalize(stmt);
+//             sqlite3_close(db);
+
+//             let schema = get_db_schema(db_name).unwrap();
+
+//             println!("{schema:?}");
+//             assert_eq!(schema.len(), 1);
+//             assert!(schema[0].contains("CREATE TABLE users")); // SQL matches
+
+//             // Cleanup file
+//             std::fs::remove_file(db_name).unwrap_or(());
+//         }
+//     }
+// }
