@@ -15,7 +15,7 @@ use syn::{
 use type_inference::{
     binding_patterns::get_type_of_binding_parameters, expr::BaseType,
     pg_type_cast_to_sqlite::pg_cast_syntax_to_sqlite, select_patterns::get_types_from_select,
-    table::create_tables,
+    table::create_tables, validate_insert_strict,
 };
 
 use crate::{execute::Execute, query::Query, utils::format_sql};
@@ -183,6 +183,10 @@ fn expand(
                 return Err(syn::Error::new(sql_lit.span(), err_msg.to_string()));
             }
 
+            if let Err(err_msg) = validate_insert_strict(&sql_query, &all_tables) {
+                return Err(syn::Error::new(sql_lit.span(), err_msg.to_string()));
+            }
+
             let select_types = match get_types_from_select(&sql_query, &all_tables) {
                 Ok(types) => types,
                 Err(err_msg) => {
@@ -283,7 +287,7 @@ fn expand(
                         BaseType::Real => quote! { f64 },
                         BaseType::Bool => quote! { bool },
                         BaseType::Text => quote! { &str },
-                        _ => quote! { Vec<u8> },
+                        _ => quote! {},
                     };
 
                     let final_type = if bind_type.nullable {
@@ -352,7 +356,7 @@ fn expand(
                         BaseType::Real => quote! { f64 },
                         BaseType::Text => quote! { String },
                         BaseType::Bool => quote! { bool },
-                        _ => quote! { Vec<u8> },
+                        _ => quote! {},
                     };
 
                     let final_ty = if col.data_type.nullable {
@@ -419,7 +423,7 @@ fn expand(
                         BaseType::Real => quote! { f64 },
                         BaseType::Text => quote! { String },
                         BaseType::Bool => quote! { bool },
-                        _ => quote! { Vec<u8> },
+                        _ => quote! {},
                     };
 
                     let final_ty = if col.data_type.nullable {
@@ -450,7 +454,7 @@ fn expand(
                         BaseType::Real => quote! { f64 },
                         BaseType::Bool => quote! { bool },
                         BaseType::Text => quote! { &str },
-                        _ => quote! { Vec<u8> },
+                        _ => quote! {},
                     };
 
                     let final_type = if bind_type.nullable {
