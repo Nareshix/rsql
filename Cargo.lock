@@ -40,6 +40,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a3076410a55c90011c298b04d0cfa770b00fa04e1e3c97d3f6c9de105a03844"
 
 [[package]]
+name = "lazysql"
+version = "0.1.0"
+dependencies = [
+ "lazysql-core",
+ "macros",
+]
+
+[[package]]
+name = "lazysql-core"
+version = "0.1.0"
+dependencies = [
+ "libsqlite3-sys",
+ "thiserror",
+ "type_inference",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.177"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -65,9 +82,9 @@ checksum = "34080505efa8e45a4b816c349525ebe327ceaa8559756f0356cba97ef3bf7432"
 name = "macros"
 version = "0.1.0"
 dependencies = [
+ "lazysql-core",
  "proc-macro2",
  "quote",
- "rsql-core",
  "sqlformat",
  "syn",
  "type_inference",
@@ -153,23 +170,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rsql"
-version = "0.1.0"
-dependencies = [
- "macros",
- "rsql-core",
-]
-
-[[package]]
-name = "rsql-core"
-version = "0.1.0"
-dependencies = [
- "libsqlite3-sys",
- "thiserror",
- "type_inference",
-]
-
-[[package]]
 name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -235,7 +235,7 @@ dependencies = [
 name = "tests"
 version = "0.1.0"
 dependencies = [
- "rsql",
+ "lazysql",
 ]
 
 [[package]]

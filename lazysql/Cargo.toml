@@ -1,8 +1,8 @@
 [package]
-name = "rsql"
+name = "lazysql"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-rsql-core = { path = "../rsql-core" }
+lazysql-core = { path = "../lazysql-core" }
 macros = { path = "../macros" }

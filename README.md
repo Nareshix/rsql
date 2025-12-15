@@ -1,8 +1,7 @@
-
 ## Quick Start
 
 ```rust
-use rsql::{lazy_sql, LazyConnection};
+use lazysql::{lazy_sql, LazyConnection};
 
 #[lazy_sql]
 struct AppDatabase {
@@ -56,17 +55,21 @@ The type inference system and compile time check also works well for `joins`, `c
 
 ## Configuration Methods
 
-`rsql` supports 3 ways to define your schema, depending on your workflow.
+`lazysql` supports 3 ways to define your schema, depending on your workflow.
 
 ### 1. Inline Schema (Standalone)
+
 As seen in the Quick Start. Define tables inside the struct. Useful for prototypes or self-contained modules.
+
 ```rust
 #[lazy_sql]
 struct App { ... }
 ```
 
 ### 2. SQL File
-Point to a `.sql` file. The compile time checks will be done against this sql file (ensure that there is `CREATE TABLE`)   `rsql` watches this file; if you edit it, your Rust project recompiles automatically to ensure type safety.
+
+Point to a `.sql` file. The compile time checks will be done against this sql file (ensure that there is `CREATE TABLE`) `lazysql` watches this file; if you edit it, your Rust project recompiles automatically to ensure type safety.
+
 ```rust
 #[lazy_sql("schema.sql")]
 // you dont have to create tables and go on writing read/write sql queries and get compile time guarantees.
@@ -74,7 +77,9 @@ struct App { ... }
 ```
 
 ### 3. Live Database
-Point to an existing `.db` binary file. `rsql` inspects the live metadata to validate your queries.
+
+Point to an existing `.db` binary file. `lazysql` inspects the live metadata to validate your queries.
+
 ```rust
 #[lazy_sql("production_snapshot.db")]
 struct App { ... }
@@ -82,25 +87,29 @@ struct App { ... }
 
 Note: for method 2 and 3, you can techinically CREATE TABLE as well but to ensure that they are taken into considreration for compile time check, add them at the top of your struct
 
-
-
 ## Features & Usage
+
 the `lazy_sql!` macro brings along `sql!` and `sql_runtime!` macro. so there is no need to import them. and they can only be used within structs defined with `lazy_sql!`
+
 ### The `sql!` Macro
+
 Always prefer to use this. It automatically:
+
 1.  **Infers Inputs:** Maps `?` to Rust types (`i64`, `f64`, `String`, `bool`).
 2.  **Generates Outputs:** For `SELECT` queries, creates a struct named after the field
 
 ### The `sql_runtime!` Macro
+
 Use this only when u need the sql to to be runned at runtime. And there are some additional things to take note of when using this macro
 
 #### 1. `SELECT`
+
 You can map a query result to any struct by deriving `SqlMapping`.
 
- `SqlMapping` maps columns by **index**, not by name. The order of fields in your struct **must** match the order of columns in your `SELECT` statement exactly.
+`SqlMapping` maps columns by **index**, not by name. The order of fields in your struct **must** match the order of columns in your `SELECT` statement exactly.
 
 ```rust
-use rsql::{SqlMapping, LazyConnection, lazy_sql};
+use lazysql::{SqlMapping, LazyConnection, lazy_sql};
 
 #[derive(Debug, SqlMapping)]
 struct UserStats {
@@ -132,8 +141,8 @@ fn foo{
 }
 ```
 
-
 #### 2. No Return Type
+
 For `INSERT`, `UPDATE`, or `DELETE` statements
 
 ```rust
@@ -145,7 +154,9 @@ struct Logger {
 ```
 
 ### Postgres Compatibility
-You can use Postgres-style casting syntax. `rsql` transpiles it to SQLite syntax at compile time.
+
+You can use Postgres-style casting syntax. `lazysql` transpiles it to SQLite syntax at compile time.
+
 ```rust
 // You write:
 sql!("SELECT price::text FROM items")
@@ -155,17 +166,18 @@ sql!("SELECT price::text FROM items")
 ```
 
 ### Type Mapping
-| SQLite Context | Rust Type | Notes |
-| :--- | :--- | :--- |
-| `TEXT` | `String` / `&str` | |
-| `INTEGER` | `i64` | |
-| `REAL` | `f64` | Includes `FLOAT`, `DOUBLE` |
-| `BOOLEAN` | `bool` | Requires `CHECK (col IN (0,1))`  or `Check (col = 0 OR col = 1)`. You could techinically use `BOOL` or `BOOLEAN` as the data type when creating table (due to sqlite felxible type nature) and it would work as well. But this is discouraged |
-| Nullable | `Option<T>` | When a column or expr has a possibility of returning `NULL`, this will be returned. its recommended to use `NOT NULL` when creating tables so that ergonoimic wise you dont have always use Some(T) when adding parameters |
+
+| SQLite Context | Rust Type         | Notes                                                                                                                                                                                                                                        |
+| :------------- | :---------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TEXT`         | `String` / `&str` |                                                                                                                                                                                                                                              |
+| `INTEGER`      | `i64`             |                                                                                                                                                                                                                                              |
+| `REAL`         | `f64`             | Includes `FLOAT`, `DOUBLE`                                                                                                                                                                                                                   |
+| `BOOLEAN`      | `bool`            | Requires `CHECK (col IN (0,1))` or `Check (col = 0 OR col = 1)`. You could techinically use `BOOL` or `BOOLEAN` as the data type when creating table (due to sqlite felxible type nature) and it would work as well. But this is discouraged |
+| Nullable       | `Option<T>`       | When a column or expr has a possibility of returning `NULL`, this will be returned. its recommended to use `NOT NULL` when creating tables so that ergonoimic wise you dont have always use Some(T) when adding parameters                   |
 
 ### Strict INSERT Validation
-`rsql` checks `INSERT` statements at compile time. If you omit a column that is **not null** and has **no default value**, your code will fail to compile.
 
+`lazysql` checks `INSERT` statements at compile time. If you omit a column that is **not null** and has **no default value**, your code will fail to compile.
 
 1. upsert
 2. transactions

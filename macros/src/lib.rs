@@ -1,9 +1,9 @@
 use sqlformat::{FormatOptions, Indent, QueryParams, format};
 use std::{collections::HashMap, env, path::Path};
 
+use lazysql_core::utility::utils::{get_db_schema, validate_sql_syntax_with_sqlite};
 use proc_macro::TokenStream;
 use quote::quote;
-use rsql_core::utility::utils::{get_db_schema, validate_sql_syntax_with_sqlite};
 use syn::{
     Data, DeriveInput, Fields, GenericParam, Ident, ItemStruct, LifetimeParam, LitStr, Type,
     parse_macro_input, parse_quote, spanned::Spanned,
@@ -185,9 +185,9 @@ fn expand(
             if sql_query.trim().to_uppercase().starts_with("CREATE TABLE") {
                 create_tables(&sql_query, &mut all_tables);
 
-                field.ty = parse_quote!(rsql::internal_sqlite::lazy_statement::LazyStmt);
+                field.ty = parse_quote!(lazysql::internal_sqlite::lazy_statement::LazyStmt);
                 sql_assignments.push(quote! {
-                    #ident: rsql::internal_sqlite::lazy_statement::LazyStmt {
+                    #ident: lazysql::internal_sqlite::lazy_statement::LazyStmt {
                         sql_query: #sql_lit,
                         stmt: std::ptr::null_mut(),
                     }
@@ -197,17 +197,17 @@ fn expand(
                 generated_methods.push(quote! {
                     #(#field_attrs)*
                     #[doc = #doc_comment]
-                    pub fn #ident(&mut self) -> Result<(), rsql::errors::SqlWriteError> {
+                    pub fn #ident(&mut self) -> Result<(), lazysql::errors::SqlWriteError> {
                         if self.#ident.stmt.is_null() {
                             unsafe {
-                                rsql::utility::utils::prepare_stmt(
+                                lazysql::utility::utils::prepare_stmt(
                                     self.__db.db,
                                     &mut self.#ident.stmt,
                                     self.#ident.sql_query
                                 )?;
                             }
                         }
-                        let mut preparred_statement = rsql::internal_sqlite::preparred_statement::PreparredStmt {
+                        let mut preparred_statement = lazysql::internal_sqlite::preparred_statement::PreparredStmt {
                             stmt: self.#ident.stmt,
                             conn: self.__db.db,
                         };
@@ -275,10 +275,10 @@ fn expand(
             let formated_sql_query = format_sql(&sql_query);
             let doc_comment = format!(" \n**SQL**\n```sql\n{}", formated_sql_query);
 
-            field.ty = parse_quote!(rsql::internal_sqlite::lazy_statement::LazyStmt);
+            field.ty = parse_quote!(lazysql::internal_sqlite::lazy_statement::LazyStmt);
 
             sql_assignments.push(quote! {
-                #ident: rsql::internal_sqlite::lazy_statement::LazyStmt {
+                #ident: lazysql::internal_sqlite::lazy_statement::LazyStmt {
                     sql_query: #sql_lit,
                     stmt: std::ptr::null_mut(),
                 }
@@ -288,17 +288,17 @@ fn expand(
                 generated_methods.push(quote! {
                     #(#field_attrs)*
                     #[doc = #doc_comment]
-                    pub fn #ident(&mut self) -> Result<(), rsql::errors::SqlWriteError> {
+                    pub fn #ident(&mut self) -> Result<(), lazysql::errors::SqlWriteError> {
                         if self.#ident.stmt.is_null() {
                             unsafe {
-                                rsql::utility::utils::prepare_stmt(
+                                lazysql::utility::utils::prepare_stmt(
                                     self.__db.db,
                                     &mut self.#ident.stmt,
                                     self.#ident.sql_query
                                 )?;
                             }
                         }
-                        let mut preparred_statement = rsql::internal_sqlite::preparred_statement::PreparredStmt {
+                        let mut preparred_statement = lazysql::internal_sqlite::preparred_statement::PreparredStmt {
                             stmt: self.#ident.stmt,
                             conn: self.__db.db,
                         };
@@ -338,10 +338,10 @@ fn expand(
                 generated_methods.push(quote! {
                     #(#field_attrs)*
                     #[doc = #doc_comment]
-                    pub fn #ident(&mut self, #(#method_args),*) -> Result<(), rsql::errors::SqlWriteBindingError> {
+                    pub fn #ident(&mut self, #(#method_args),*) -> Result<(), lazysql::errors::SqlWriteBindingError> {
                         if self.#ident.stmt.is_null() {
                             unsafe {
-                                rsql::utility::utils::prepare_stmt(
+                                lazysql::utility::utils::prepare_stmt(
                                     self.__db.db,
                                     &mut self.#ident.stmt,
                                     self.#ident.sql_query
@@ -349,7 +349,7 @@ fn expand(
                             }
                         }
 
-                        let mut preparred_statement = rsql::internal_sqlite::preparred_statement::PreparredStmt {
+                        let mut preparred_statement = lazysql::internal_sqlite::preparred_statement::PreparredStmt {
                             stmt: self.#ident.stmt,
                             conn: self.__db.db,
                         };
@@ -402,7 +402,7 @@ fn expand(
                 }
 
                 generated_structs.push(quote! {
-                    #[derive(Debug, rsql::SqlMapping)]
+                    #[derive(Debug, lazysql::SqlMapping)]
                     pub struct #struct_name {
                         #(#struct_fields),*
                     }
@@ -411,10 +411,10 @@ fn expand(
                 generated_methods.push(quote! {
                     #(#field_attrs)*
                 #[doc = #doc_comment]
-                pub fn #ident(&mut self) -> Result<rsql::internal_sqlite::rows_dao::Rows<#mapper_struct_name>, rsql::errors::SqlReadError> {
+                pub fn #ident(&mut self) -> Result<lazysql::internal_sqlite::rows_dao::Rows<#mapper_struct_name>, lazysql::errors::SqlReadError> {
                         if self.#ident.stmt.is_null() {
                             unsafe {
-                                rsql::utility::utils::prepare_stmt(
+                                lazysql::utility::utils::prepare_stmt(
                                     self.__db.db,
                                     &mut self.#ident.stmt,
                                     self.#ident.sql_query
@@ -422,7 +422,7 @@ fn expand(
                             }
                         }
 
-            let preparred_statement = rsql::internal_sqlite::preparred_statement::PreparredStmt {
+            let preparred_statement = lazysql::internal_sqlite::preparred_statement::PreparredStmt {
                 stmt: self.#ident.stmt,
                 conn: self.__db.db,
             };
@@ -470,7 +470,7 @@ fn expand(
                 }
 
                 generated_structs.push(quote! {
-                    #[derive(Debug, rsql::SqlMapping)]
+                    #[derive(Debug, lazysql::SqlMapping)]
                     pub struct #output_struct_name {
                         #(#struct_fields),*
                     }
@@ -507,10 +507,10 @@ fn expand(
                 generated_methods.push(quote! {
                     #(#field_attrs)*
                     #[doc = #doc_comment]
-                    pub fn #ident(&mut self, #(#method_args),*) -> Result<rsql::internal_sqlite::rows_dao::Rows<#mapper_struct_name>, rsql::errors::SqlReadErrorBindings> {
+                    pub fn #ident(&mut self, #(#method_args),*) -> Result<lazysql::internal_sqlite::rows_dao::Rows<#mapper_struct_name>, lazysql::errors::SqlReadErrorBindings> {
                         if self.#ident.stmt.is_null() {
                             unsafe {
-                                rsql::utility::utils::prepare_stmt(
+                                lazysql::utility::utils::prepare_stmt(
                                     self.__db.db,
                                     &mut self.#ident.stmt,
                                     self.#ident.sql_query
@@ -518,7 +518,7 @@ fn expand(
                             }
                         }
 
-                        let mut preparred_statement = rsql::internal_sqlite::preparred_statement::PreparredStmt {
+                        let mut preparred_statement = lazysql::internal_sqlite::preparred_statement::PreparredStmt {
                             stmt: self.#ident.stmt,
                             conn: self.__db.db,
                         };
@@ -532,10 +532,10 @@ fn expand(
         } else if let Some(runtime_input) = parse_runtime_macro(&field.ty)? {
             let sql_lit = runtime_input.sql;
 
-            field.ty = parse_quote!(rsql::internal_sqlite::lazy_statement::LazyStmt);
+            field.ty = parse_quote!(lazysql::internal_sqlite::lazy_statement::LazyStmt);
 
             sql_assignments.push(quote! {
-                #ident: rsql::internal_sqlite::lazy_statement::LazyStmt {
+                #ident: lazysql::internal_sqlite::lazy_statement::LazyStmt {
                     sql_query: #sql_lit,
                     stmt: std::ptr::null_mut(),
                 }
@@ -582,10 +582,10 @@ fn expand(
                     #(#field_attrs)*
                     #[doc = #doc_comment]
                     // SELECT
-                    pub fn #ident(&mut self, #(#method_args),*) -> Result<rsql::internal_sqlite::rows_dao::Rows<#mapper_type>, rsql::errors::SqlReadErrorBindings> {
+                    pub fn #ident(&mut self, #(#method_args),*) -> Result<lazysql::internal_sqlite::rows_dao::Rows<#mapper_type>, lazysql::errors::SqlReadErrorBindings> {
                         if self.#ident.stmt.is_null() {
                             unsafe {
-                                rsql::utility::utils::prepare_stmt(
+                                lazysql::utility::utils::prepare_stmt(
                                     self.__db.db,
                                     &mut self.#ident.stmt,
                                     self.#ident.sql_query
@@ -593,7 +593,7 @@ fn expand(
                             }
                         }
 
-                        let mut preparred_statement = rsql::internal_sqlite::preparred_statement::PreparredStmt {
+                        let mut preparred_statement = lazysql::internal_sqlite::preparred_statement::PreparredStmt {
                             stmt: self.#ident.stmt,
                             conn: self.__db.db,
                         };
@@ -608,10 +608,10 @@ fn expand(
                 generated_methods.push(quote! {
                     #(#field_attrs)*
                     #[doc = #doc_comment]
-                    pub fn #ident(&mut self, #(#method_args),*) -> Result<(), rsql::errors::SqlWriteBindingError> {
+                    pub fn #ident(&mut self, #(#method_args),*) -> Result<(), lazysql::errors::SqlWriteBindingError> {
                         if self.#ident.stmt.is_null() {
                             unsafe {
-                                rsql::utility::utils::prepare_stmt(
+                                lazysql::utility::utils::prepare_stmt(
                                     self.__db.db,
                                     &mut self.#ident.stmt,
                                     self.#ident.sql_query
@@ -619,7 +619,7 @@ fn expand(
                             }
                         }
 
-                        let mut preparred_statement = rsql::internal_sqlite::preparred_statement::PreparredStmt {
+                        let mut preparred_statement = lazysql::internal_sqlite::preparred_statement::PreparredStmt {
                             stmt: self.#ident.stmt,
                             conn: self.__db.db,
                         };
@@ -649,7 +649,7 @@ fn expand(
     fields.named.insert(
         0,
         parse_quote! {
-            __db: &'a rsql::internal_sqlite::lazy_connection::LazyConnection
+            __db: &'a lazysql::internal_sqlite::lazy_connection::LazyConnection
         },
     );
 
@@ -671,7 +671,7 @@ fn expand(
 
             impl #impl_generics #struct_name #ty_generics #where_clause {
                 pub fn new(
-                    db: &'a rsql::internal_sqlite::lazy_connection::LazyConnection,
+                    db: &'a lazysql::internal_sqlite::lazy_connection::LazyConnection,
                     #(#standard_params),*
                 ) -> Self {
                     Self {
@@ -733,7 +733,7 @@ pub fn my_macro(input: TokenStream) -> TokenStream {
         quote! {
             let #field_name = unsafe
             {
-            <#field_type as rsql::traits::from_sql::FromSql>::from_sql(stmt, #index)
+            <#field_type as lazysql::traits::from_sql::FromSql>::from_sql(stmt, #index)
             };
 
         }
@@ -744,10 +744,10 @@ pub fn my_macro(input: TokenStream) -> TokenStream {
         #[derive(Clone, Copy, Debug)]
         pub struct #mapper_struct_name;
 
-        impl rsql::traits::row_mapper::RowMapper for #mapper_struct_name {
+        impl lazysql::traits::row_mapper::RowMapper for #mapper_struct_name {
             type Output = #struct_name;
 
-            unsafe fn map_row(&self, stmt: *mut rsql::libsqlite3_sys::sqlite3_stmt) -> Self::Output {
+            unsafe fn map_row(&self, stmt: *mut lazysql::libsqlite3_sys::sqlite3_stmt) -> Self::Output {
                 #(#field_bindings)*
 
                 Self::Output {

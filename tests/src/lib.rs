@@ -1,4 +1,4 @@
-use rsql::lazy_sql;
+use lazysql::lazy_sql;
 
 #[lazy_sql]
 pub struct ShopDao {
@@ -23,7 +23,7 @@ pub struct ShopDao {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rsql::LazyConnection;
+    use lazysql::LazyConnection;
 
     #[test]
     fn test_shop_flow() -> Result<(), Box<dyn std::error::Error>> {
