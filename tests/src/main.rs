@@ -1,67 +1,36 @@
-use rsql::{
-    internal_sqlite::efficient::lazy_connection::LazyConnection,
-    lazy_sql,
-};
+use rsql::{internal_sqlite::efficient::lazy_connection::LazyConnection, lazy_sql};
 
-#[lazy_sql("tests/oi.db")]
+#[lazy_sql]
 pub struct ShopDao {
-    // 1. Complex Join
-    q_complex_join: sql!(
-        "SELECT
-        o.order_id,
-        u.username,
-        SUM(oi.quantity * oi.price_each) AS total_amount,
-        o.status
-        FROM orders o
-        JOIN users u ON o.user_id = u.user_id
-        JOIN order_items oi ON oi.order_id = o.order_id
-        GROUP BY o.order_id;"
+    create_table: sql!(
+        " CREATE TABLE Persons (
+        PersonID INTEGER NOT NULL,
+        LastName TEXT NOT NULL,
+        FirstName TEXT,
+        Address TEXT,
+        Alive INTEGER NOT NULL CHECK (Alive IN (0,1))
+    ) STRICT;"
+    ),
+    /// comment issue
+    insert: sql!(
+        "INSERT INTO Persons (PersonID, LastName, FirstName, Address, Alive)
+        VALUES (1, 'Smith', 'John', '123 Main Street', ?);"
     ),
 
-    q_low_stock: sql!("SELECT name  AS mom FROM products WHERE stock < 20"),
-
-    q_item_count: sql!(
-        "INSERT INTO USERS(USER_ID) VALUES(?)"
-    ),
-
+    /// your mom
+    select: sql!("SELECT * FROM persons"),
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let conn = LazyConnection::open("oi.db").unwrap();
+    let conn = LazyConnection::open_memory().unwrap();
     let mut dao = ShopDao::new(&conn);
 
-    let x= dao.q_low_stock()?;
-    for i in x {
-        let xx = i?;
-        println!("{}", xx.mom);
+    dao.create_table()?;
+    dao.insert(true)?;
 
-
+    let results = dao.select()?;
+    for i in results {
+        println!("{:?}", i?.alive);
     }
-
-    // let x = {
-    //     let stmt = dao.q_item_count()?;
-    //     stmt.bind_parameter(1, 0)?;
-    //     stmt.query(OrdersItemCount)
-    // };
-    // for i in x {
-    //     println!("{}", i?.num_items);
-    // }
-    // {
-    //     let stmt = dao.q_item_count()?;
-    //     stmt.bind_parameter(1, 50)?;
-    //     for row in stmt.query(OrdersItemCount) {
-    //         println!("  {:?}", row?);
-    //     }
-    // }
-
-    // {
-    //     println!("Case C (Count > 1):");
-    //     let stmt = dao.q_item_count()?;
-    //     stmt.bind_parameter(1, 1)?;
-    //     for row in stmt.query(OrdersItemCount) {
-    //         println!("  {:?}", row?);
-    //     }
-    // }
-
     Ok(())
 }
