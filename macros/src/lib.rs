@@ -24,20 +24,6 @@ fn format_sql(sql: &str) -> String {
     format(sql, &QueryParams::None, &options)
 }
 
-fn generate_stmt_prep(ident: &syn::Ident) -> proc_macro2::TokenStream {
-    quote! {
-        if self.#ident.stmt.is_null() {
-            unsafe {
-                rsql::utility::utils::prepare_stmt(
-                    self.__db.db,
-                    &mut self.#ident.stmt,
-                    self.#ident.sql_query
-                )?;
-            }
-        }
-    }
-}
-
 struct RuntimeSqlInput {
     return_type: Option<Type>,
     sql: syn::LitStr,
