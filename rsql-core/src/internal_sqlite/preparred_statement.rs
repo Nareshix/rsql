@@ -6,7 +6,7 @@ use libsqlite3_sys::{
 
 use crate::{
     errors::{SqliteFailure, statement::StatementStepErrors},
-    internal_sqlite::efficient::rows_dao::Rows,
+    internal_sqlite::rows_dao::Rows,
     traits::{row_mapper::RowMapper, to_sql::ToSql},
     utility::utils::get_sqlite_failiure,
 };

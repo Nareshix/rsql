@@ -13,7 +13,7 @@ use crate::{
     expr::{BaseType, evaluate_expr_type},
     table::normalize_identifier,
 };
-use crate::{pg_type_cast_to_sqlite::pg_cast_syntax_to_sqlite, table::normalize_part};
+use crate::{pg_cast_syntax_to_sqlite, table::normalize_part};
 
 pub fn get_types_from_select(
     sql: &str,

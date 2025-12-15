@@ -1,7 +1,4 @@
-mod execute;
-mod query;
-mod utils;
-
+use sqlformat::{FormatOptions, Indent, QueryParams, format};
 use std::{collections::HashMap, env, path::Path};
 
 use proc_macro::TokenStream;
@@ -12,23 +9,19 @@ use syn::{
     parse_macro_input, parse_quote, spanned::Spanned,
 };
 use type_inference::{
-    binding_patterns::get_type_of_binding_parameters, expr::BaseType,
-    pg_type_cast_to_sqlite::pg_cast_syntax_to_sqlite, select_patterns::get_types_from_select,
-    table::create_tables, validate_insert_strict,
+    binding_patterns::get_type_of_binding_parameters, expr::BaseType, pg_cast_syntax_to_sqlite,
+    select_patterns::get_types_from_select, table::create_tables, validate_insert_strict,
 };
 
-use crate::{execute::Execute, query::Query, utils::format_sql};
-
-#[proc_macro]
-pub fn execute(input: TokenStream) -> TokenStream {
-    let parsed_input = parse_macro_input!(input as Execute);
-    quote! { #parsed_input }.into()
-}
-
-#[proc_macro]
-pub fn query(input: TokenStream) -> TokenStream {
-    let parsed_input = parse_macro_input!(input as Query);
-    quote! { #parsed_input }.into()
+/// This nicely formats the sql string.
+///
+/// Useful for vscode hover over fn
+fn format_sql(sql: &str) -> String {
+    let options = FormatOptions {
+        indent: Indent::Tabs,
+        ..Default::default()
+    };
+    format(sql, &QueryParams::None, &options)
 }
 
 struct RuntimeSqlInput {
@@ -79,6 +72,7 @@ fn parse_runtime_macro(ty: &syn::Type) -> syn::Result<Option<RuntimeSqlInput>> {
     }
     Ok(None)
 }
+
 #[proc_macro_attribute]
 pub fn lazy_sql(args: TokenStream, input: TokenStream) -> TokenStream {
     let path_lit_opt = if args.is_empty() {
@@ -191,9 +185,9 @@ fn expand(
             if sql_query.trim().to_uppercase().starts_with("CREATE TABLE") {
                 create_tables(&sql_query, &mut all_tables);
 
-                field.ty = parse_quote!(rsql::internal_sqlite::efficient::lazy_statement::LazyStmt);
+                field.ty = parse_quote!(rsql::internal_sqlite::lazy_statement::LazyStmt);
                 sql_assignments.push(quote! {
-                    #ident: rsql::internal_sqlite::efficient::lazy_statement::LazyStmt {
+                    #ident: rsql::internal_sqlite::lazy_statement::LazyStmt {
                         sql_query: #sql_lit,
                         stmt: std::ptr::null_mut(),
                     }
@@ -213,7 +207,7 @@ fn expand(
                                 )?;
                             }
                         }
-                        let mut preparred_statement = rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt {
+                        let mut preparred_statement = rsql::internal_sqlite::preparred_statement::PreparredStmt {
                             stmt: self.#ident.stmt,
                             conn: self.__db.db,
                         };
@@ -281,10 +275,10 @@ fn expand(
             let formated_sql_query = format_sql(&sql_query);
             let doc_comment = format!(" \n**SQL**\n```sql\n{}", formated_sql_query);
 
-            field.ty = parse_quote!(rsql::internal_sqlite::efficient::lazy_statement::LazyStmt);
+            field.ty = parse_quote!(rsql::internal_sqlite::lazy_statement::LazyStmt);
 
             sql_assignments.push(quote! {
-                #ident: rsql::internal_sqlite::efficient::lazy_statement::LazyStmt {
+                #ident: rsql::internal_sqlite::lazy_statement::LazyStmt {
                     sql_query: #sql_lit,
                     stmt: std::ptr::null_mut(),
                 }
@@ -304,7 +298,7 @@ fn expand(
                                 )?;
                             }
                         }
-                        let mut preparred_statement = rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt {
+                        let mut preparred_statement = rsql::internal_sqlite::preparred_statement::PreparredStmt {
                             stmt: self.#ident.stmt,
                             conn: self.__db.db,
                         };
@@ -355,7 +349,7 @@ fn expand(
                             }
                         }
 
-                        let mut preparred_statement = rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt {
+                        let mut preparred_statement = rsql::internal_sqlite::preparred_statement::PreparredStmt {
                             stmt: self.#ident.stmt,
                             conn: self.__db.db,
                         };
@@ -417,7 +411,7 @@ fn expand(
                 generated_methods.push(quote! {
                     #(#field_attrs)*
                 #[doc = #doc_comment]
-                pub fn #ident(&mut self) -> Result<rsql::internal_sqlite::efficient::rows_dao::Rows<#mapper_struct_name>, rsql::errors::SqlReadError> {
+                pub fn #ident(&mut self) -> Result<rsql::internal_sqlite::rows_dao::Rows<#mapper_struct_name>, rsql::errors::SqlReadError> {
                         if self.#ident.stmt.is_null() {
                             unsafe {
                                 rsql::utility::utils::prepare_stmt(
@@ -428,7 +422,7 @@ fn expand(
                             }
                         }
 
-            let preparred_statement = rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt {
+            let preparred_statement = rsql::internal_sqlite::preparred_statement::PreparredStmt {
                 stmt: self.#ident.stmt,
                 conn: self.__db.db,
             };
@@ -513,7 +507,7 @@ fn expand(
                 generated_methods.push(quote! {
                     #(#field_attrs)*
                     #[doc = #doc_comment]
-                    pub fn #ident(&mut self, #(#method_args),*) -> Result<rsql::internal_sqlite::efficient::rows_dao::Rows<#mapper_struct_name>, rsql::errors::SqlReadErrorBindings> {
+                    pub fn #ident(&mut self, #(#method_args),*) -> Result<rsql::internal_sqlite::rows_dao::Rows<#mapper_struct_name>, rsql::errors::SqlReadErrorBindings> {
                         if self.#ident.stmt.is_null() {
                             unsafe {
                                 rsql::utility::utils::prepare_stmt(
@@ -524,7 +518,7 @@ fn expand(
                             }
                         }
 
-                        let mut preparred_statement = rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt {
+                        let mut preparred_statement = rsql::internal_sqlite::preparred_statement::PreparredStmt {
                             stmt: self.#ident.stmt,
                             conn: self.__db.db,
                         };
@@ -538,10 +532,10 @@ fn expand(
         } else if let Some(runtime_input) = parse_runtime_macro(&field.ty)? {
             let sql_lit = runtime_input.sql;
 
-            field.ty = parse_quote!(rsql::internal_sqlite::efficient::lazy_statement::LazyStmt);
+            field.ty = parse_quote!(rsql::internal_sqlite::lazy_statement::LazyStmt);
 
             sql_assignments.push(quote! {
-                #ident: rsql::internal_sqlite::efficient::lazy_statement::LazyStmt {
+                #ident: rsql::internal_sqlite::lazy_statement::LazyStmt {
                     sql_query: #sql_lit,
                     stmt: std::ptr::null_mut(),
                 }
@@ -588,7 +582,7 @@ fn expand(
                     #(#field_attrs)*
                     #[doc = #doc_comment]
                     // SELECT
-                    pub fn #ident(&mut self, #(#method_args),*) -> Result<rsql::internal_sqlite::efficient::rows_dao::Rows<#mapper_type>, rsql::errors::SqlReadErrorBindings> {
+                    pub fn #ident(&mut self, #(#method_args),*) -> Result<rsql::internal_sqlite::rows_dao::Rows<#mapper_type>, rsql::errors::SqlReadErrorBindings> {
                         if self.#ident.stmt.is_null() {
                             unsafe {
                                 rsql::utility::utils::prepare_stmt(
@@ -599,7 +593,7 @@ fn expand(
                             }
                         }
 
-                        let mut preparred_statement = rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt {
+                        let mut preparred_statement = rsql::internal_sqlite::preparred_statement::PreparredStmt {
                             stmt: self.#ident.stmt,
                             conn: self.__db.db,
                         };
@@ -625,7 +619,7 @@ fn expand(
                             }
                         }
 
-                        let mut preparred_statement = rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt {
+                        let mut preparred_statement = rsql::internal_sqlite::preparred_statement::PreparredStmt {
                             stmt: self.#ident.stmt,
                             conn: self.__db.db,
                         };
@@ -655,7 +649,7 @@ fn expand(
     fields.named.insert(
         0,
         parse_quote! {
-            __db: &'a rsql::internal_sqlite::efficient::lazy_connection::LazyConnection
+            __db: &'a rsql::internal_sqlite::lazy_connection::LazyConnection
         },
     );
 
@@ -677,7 +671,7 @@ fn expand(
 
             impl #impl_generics #struct_name #ty_generics #where_clause {
                 pub fn new(
-                    db: &'a rsql::internal_sqlite::efficient::lazy_connection::LazyConnection,
+                    db: &'a rsql::internal_sqlite::lazy_connection::LazyConnection,
                     #(#standard_params),*
                 ) -> Self {
                     Self {

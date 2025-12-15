@@ -1,8 +1,4 @@
-pub mod efficient;
-pub mod ergonomic;
-
-#[cfg(test)]
-mod connection_test;
-
-#[cfg(test)]
-mod statement_test;
+pub mod lazy_connection;
+pub mod lazy_statement;
+pub mod preparred_statement;
+pub mod rows_dao;

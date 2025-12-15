@@ -1,17 +1,17 @@
 use libsqlite3_sys::{SQLITE_BUSY, SQLITE_DONE, SQLITE_ROW, sqlite3_step};
 
 use crate::{
-    errors::row::RowMapperError, internal_sqlite::ergonomic::statement::Statement,
+    errors::row::RowMapperError, internal_sqlite::preparred_statement::PreparredStmt,
     traits::row_mapper::RowMapper, utility::utils::get_sqlite_failiure,
 };
 
 #[allow(dead_code)]
-pub struct Rows<'a, M: RowMapper> {
-    pub stmt: &'a Statement<'a>,
+pub struct Rows<M: RowMapper> {
+    pub stmt: PreparredStmt,
     pub mapper: M,
 }
 
-impl<'a, M: RowMapper> Iterator for Rows<'a, M> {
+impl<M: RowMapper> Iterator for Rows<M> {
     // The Output refers to the original struct predefined by user (TODO, better explanation)
     type Item = Result<M::Output, RowMapperError>;
 
@@ -27,8 +27,21 @@ impl<'a, M: RowMapper> Iterator for Rows<'a, M> {
         } else if result_code == SQLITE_DONE {
             None
         } else {
-            let (code, error_msg) = unsafe { get_sqlite_failiure(self.stmt.conn.db) };
+            let (code, error_msg) = unsafe { get_sqlite_failiure(self.stmt.conn) };
             Some(Err(RowMapperError::SqliteFailure { code, error_msg }))
         }
+    }
+}
+
+impl<M: RowMapper> Rows<M> {
+    /// Returns the first row if available, or `None` if the query returned no results.
+    pub fn first(mut self) -> Result<Option<M::Output>, RowMapperError> {
+        self.next().transpose()
+    }
+
+    /// collects the iterator into a vector. Just a lightweight wrapper around `.collect()`
+    /// to prevent adding type hints (`Vec<_>`) in code
+    pub fn all(self) -> Result<Vec<M::Output>, RowMapperError> {
+        self.collect()
     }
 }

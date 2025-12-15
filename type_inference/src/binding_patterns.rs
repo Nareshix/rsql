@@ -1,5 +1,5 @@
 use crate::expr::{BaseType, Type, evaluate_expr_type};
-use crate::pg_type_cast_to_sqlite::pg_cast_syntax_to_sqlite;
+use crate::pg_cast_syntax_to_sqlite;
 use crate::table::{ColumnInfo, get_table_names, normalize_identifier, normalize_part};
 use sqlparser::ast::{
     BinaryOperator, DataType, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, SetExpr,
