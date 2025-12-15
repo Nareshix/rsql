@@ -1,4 +1,4 @@
-use rsql::{internal_sqlite::efficient::lazy_connection::LazyConnection, lazy_sql};
+use rsql::{LazyConnection, lazy_sql};
 
 #[lazy_sql]
 pub struct ShopDao {
@@ -14,7 +14,7 @@ pub struct ShopDao {
     /// comment issue
     insert: sql!(
         "INSERT INTO Persons (PersonID, LastName, FirstName, Address, Alive)
-        VALUES (1, 'Smith', 'John', '123 Main Street', ?);"
+        VALUES (1, 'Smith', 'hi', '123 Main Street', ?);"
     ),
 
     /// your mom
@@ -22,7 +22,7 @@ pub struct ShopDao {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let conn = LazyConnection::open_memory().unwrap();
+    let conn = LazyConnection::open("asd.db").unwrap();
     let mut dao = ShopDao::new(&conn);
 
     dao.create_table()?;
@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let results = dao.select()?;
     for i in results {
-        println!("{:?}", i?.alive);
+        println!("{:?}", i?);
     }
     Ok(())
 }
