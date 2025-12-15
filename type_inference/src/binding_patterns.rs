@@ -34,7 +34,7 @@ pub struct InferenceError {
 fn get_table_name_str(table: &sqlparser::ast::TableObject) -> String {
     match table {
         sqlparser::ast::TableObject::TableName(obj_name) => {
-             obj_name.0.last().map(normalize_part).unwrap_or_default()
+            obj_name.0.last().map(normalize_part).unwrap_or_default()
         }
         _ => String::new(),
     }
@@ -109,9 +109,7 @@ pub fn get_type_of_binding_parameters(
             for assignment in assignments {
                 match &assignment.target {
                     sqlparser::ast::AssignmentTarget::ColumnName(obj_name) => {
-                        let col_name = obj_name.0.last()
-                             .map(normalize_part)
-                             .unwrap_or_default();
+                        let col_name = obj_name.0.last().map(normalize_part).unwrap_or_default();
 
                         let mut hint = None;
                         if let Some(cols) = all_tables.get(&table_name)
@@ -1177,8 +1175,12 @@ fn infer_cte_columns(
 
         let mut register_table = |relation: &sqlparser::ast::TableFactor| {
             if let sqlparser::ast::TableFactor::Table { name, alias, .. } = relation {
-                let real_name = name.to_string();
-
+                let real_name = name
+                    .0
+                    .last()
+                    .map(crate::table::normalize_part)
+                    .unwrap_or(name.to_string());
+                
                 if let Some(cols) = all_tables.get(&real_name) {
                     let effective_name = if let Some(a) = alias {
                         let alias_name = a.name.value.clone();
@@ -1236,7 +1238,7 @@ fn infer_cte_columns(
                 name: col_name,
                 data_type: deduced_type,
                 check_constraint: None,
-                has_default: false
+                has_default: false,
             });
         }
         return cols;
@@ -1272,7 +1274,11 @@ fn traverse_set_expr(
             ) -> Result<(), InferenceError> {
                 match factor {
                     sqlparser::ast::TableFactor::Table { name, alias, .. } => {
-                        let real_name = name.to_string();
+                        let real_name = name
+                            .0
+                            .last()
+                            .map(normalize_part)
+                            .unwrap_or(name.to_string());
                         let effective_name = if let Some(a) = alias {
                             let alias_name = a.name.value.clone();
                             if let Some(cols) = all_tables.get(&real_name).cloned() {
@@ -1388,7 +1394,7 @@ fn traverse_set_expr(
                             name: alias.value.clone(),
                             data_type: derived_type,
                             check_constraint: None,
-                            has_default:false
+                            has_default: false,
                         });
                     }
                     _ => {}
