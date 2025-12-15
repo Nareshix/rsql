@@ -171,3 +171,4 @@ sql!("SELECT price::text FROM items")
 2. transactions
 3. check_constarint in SELECT is ignored for now. aybe in future will add
 4. in case cant infer type do type casting with pg syntax or normal sqlite. but take note ::bool dont work or CAST AS bool also
+5. first() and all() from iterator
