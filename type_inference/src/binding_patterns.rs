@@ -404,6 +404,42 @@ fn traverse_expr(
         }
 
         Expr::Value(val) => {
+            if let Some(hint) = &parent_hint
+                && hint.base_type == BaseType::Bool
+            {
+                match &val.value {
+                    sqlparser::ast::Value::Number(n, _) => {
+                        if n != "0" && n != "1" {
+                            return Err(err_from_expr(
+                                expr,
+                                format!(
+                                    "Literal '{}' violates boolean check constraint (must be 0 or 1). Alternatively, use keywords TRUE or FALSE",
+                                    n
+                                ),
+                            ));
+                        }
+                    }
+
+                    sqlparser::ast::Value::SingleQuotedString(s)
+                    | sqlparser::ast::Value::DoubleQuotedString(s) => {
+                        return Err(err_from_expr(
+                            expr,
+                            format!(
+                                "String '{}' cannot be inserted into Boolean column. Use 0 or 1. Alternatively, use keywords TRUE or FALSE",
+                                s
+                            ),
+                        ));
+                    }
+
+                    sqlparser::ast::Value::Boolean(_) => {}
+
+                    sqlparser::ast::Value::Null => {}
+
+                    sqlparser::ast::Value::Placeholder(_) => {}
+                    _ => {}
+                }
+            }
+
             if let sqlparser::ast::Value::Placeholder(_) = val.value {
                 let t = parent_hint
                     .ok_or_else(|| err_from_expr(expr, "Unable to infer type. Consider casting"))?;
@@ -419,7 +455,6 @@ fn traverse_expr(
             }
             Ok(())
         }
-
         Expr::Like {
             expr: target,
             pattern,
@@ -1180,7 +1215,7 @@ fn infer_cte_columns(
                     .last()
                     .map(crate::table::normalize_part)
                     .unwrap_or(name.to_string());
-                
+
                 if let Some(cols) = all_tables.get(&real_name) {
                     let effective_name = if let Some(a) = alias {
                         let alias_name = a.name.value.clone();
