@@ -44,21 +44,19 @@ impl ToTokens for Execute {
 
         let generated_code = if sql_bindings.elems.is_empty() {
             quote! {
-                // TODO SHOULD WE STEP? we shouldnt, cuz we need to cache which will be implemented later
                 #conn.prepare(#sql_statement)?.step()
             }
         } else {
             let bindings = sql_bindings.elems.iter();
-
-            // SQLite binding starts from 1-index
+            // sqlite binding starts from index 1
             let indices = 1..=bindings.len() as i32;
 
             quote! {
-            
-            let stmt = #conn.prepare(#sql_statement)?;
-            #(stmt.bind_parameter(#indices, #bindings)?;)*
-            stmt.step()
-
+                {
+                    let stmt = #conn.prepare(#sql_statement)?;
+                    #(stmt.bind_parameter(#indices, #bindings)?;)*
+                    stmt.step()
+                }
             }
         };
 

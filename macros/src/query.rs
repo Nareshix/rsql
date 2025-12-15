@@ -52,7 +52,7 @@ impl ToTokens for Query {
             quote! {
                 {
                     let stmt = #conn.prepare(#sql_statement)?;
-                    stmt.query(#sql_mapping)
+                    stmt.query(#sql_mapping).collect::<Vec<_>>()
                 }
             }
         } else {
@@ -65,7 +65,7 @@ impl ToTokens for Query {
                 {
                     let stmt = #conn.prepare(#sql_statement)?;
                     #(stmt.bind_parameter(#indices, #bindings)?;)*
-                    stmt.query(#sql_mapping)
+                    stmt.query(#sql_mapping).collect::<Vec<_>>()
                 }
             }
         };
