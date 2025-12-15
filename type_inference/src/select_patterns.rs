@@ -1,7 +1,7 @@
 use sqlparser::{
     ast::{
-        Cte, Expr, JoinOperator, SelectItem, SelectItemQualifiedWildcardKind,
-        SetExpr, SetOperator, Statement, TableFactor,
+        Cte, Expr, JoinOperator, SelectItem, SelectItemQualifiedWildcardKind, SetExpr, SetOperator,
+        Statement, TableFactor,
     },
     dialect::SQLiteDialect,
     parser::Parser,
@@ -21,40 +21,168 @@ pub fn get_types_from_select(
 ) -> Result<Vec<ColumnInfo>, String> {
     let dialect = SQLiteDialect {};
     let sql = pg_cast_syntax_to_sqlite(sql);
-
     let ast = Parser::parse_sql(&dialect, &sql).map_err(|e| e.to_string())?;
 
-    if let Statement::Query(query) = &ast[0] {
-        let mut context_tables = all_tables.clone();
+    match &ast[0] {
+        Statement::Query(query) => {
+            let mut context_tables = all_tables.clone();
 
-        if let Some(with) = &query.with {
-            for cte in &with.cte_tables {
-                let cte_name = normalize_identifier(&cte.alias.name);
+            if let Some(with) = &query.with {
+                for cte in &with.cte_tables {
+                    let cte_name = normalize_identifier(&cte.alias.name);
 
-                let inferred_cols = resolve_cte_columns(cte, &context_tables)?;
+                    let inferred_cols = resolve_cte_columns(cte, &context_tables)?;
 
-                let final_cols = inferred_cols
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, mut col)| {
-                        // If an explicit alias exists at this index, overwrite the name
-                        if let Some(alias_def) = cte.alias.columns.get(i) {
-                            col.name = normalize_identifier(&alias_def.name);
-                        }
-                        col
-                    })
-                    .collect();
+                    let final_cols = inferred_cols
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, mut col)| {
+                            if let Some(alias_def) = cte.alias.columns.get(i) {
+                                col.name = normalize_identifier(&alias_def.name);
+                            }
+                            col
+                        })
+                        .collect();
 
-                context_tables.insert(cte_name, final_cols);
+                    context_tables.insert(cte_name, final_cols);
+                }
+            }
+
+            traverse_select_output(&query.body, &context_tables)
+        }
+
+        Statement::Insert(insert) => {
+            if let Some(returning) = &insert.returning {
+                let table_name = match &insert.table {
+                    sqlparser::ast::TableObject::TableName(obj_name) => {
+                        obj_name.0.last().map(normalize_part).unwrap_or_default()
+                    }
+                    _ => return Ok(vec![]),
+                };
+
+                if table_name.is_empty() {
+                    return Err("Invalid table name in INSERT".to_string());
+                }
+
+                process_returning_clause(returning, &table_name, all_tables)
+            } else {
+                Ok(vec![])
             }
         }
 
-        return traverse_select_output(&query.body, &context_tables);
-    }
+        Statement::Update {
+            table,
+            returning: Some(returning),
+            ..
+        } => {
+            let table_name = extract_name_from_table_factor(&table.relation)
+                .ok_or("Could not determine table name for UPDATE")?;
+            process_returning_clause(returning, &table_name, all_tables)
+        }
 
-    Ok(vec![])
+        Statement::Delete(delete) => {
+            if let Some(returning) = &delete.returning {
+                let tables = match &delete.from {
+                    sqlparser::ast::FromTable::WithFromKeyword(t) => t,
+                    sqlparser::ast::FromTable::WithoutKeyword(t) => t,
+                };
+
+                let from_item = tables.first().ok_or("DELETE statement missing table")?;
+
+                let table_name = extract_name_from_table_factor(&from_item.relation)
+                    .ok_or("Could not determine table name for DELETE")?;
+
+                process_returning_clause(returning, &table_name, all_tables)
+            } else {
+                Ok(vec![])
+            }
+        }
+        _ => Ok(vec![]),
+    }
 }
 
+fn process_returning_clause(
+    returning: &[SelectItem],
+    table_name: &str,
+    all_tables: &HashMap<String, Vec<ColumnInfo>>,
+) -> Result<Vec<ColumnInfo>, String> {
+    let mut working_tables = all_tables.clone();
+    let mut local_scope_tables = vec![];
+
+    // Put the target table into scope so 'RETURNING id' or 'RETURNING table.id' works
+    if let Some(cols) = all_tables.get(table_name) {
+        working_tables.insert(table_name.to_string(), cols.clone());
+        local_scope_tables.push(table_name.to_string());
+    }
+
+    let mut output_columns = Vec::new();
+
+    for (i, item) in returning.iter().enumerate() {
+        match item {
+            // RETURNING id AS user_id
+            SelectItem::ExprWithAlias { expr, alias } => {
+                let t = evaluate_expr_type(expr, &local_scope_tables, &working_tables)?;
+                output_columns.push(ColumnInfo {
+                    name: normalize_identifier(alias),
+                    data_type: t,
+                    check_constraint: None,
+                    has_default: false,
+                });
+            }
+            // RETURNING id
+            SelectItem::UnnamedExpr(expr) => {
+                let t = evaluate_expr_type(expr, &local_scope_tables, &working_tables)?;
+                let name = match expr {
+                    Expr::Identifier(ident) => normalize_identifier(ident),
+                    Expr::CompoundIdentifier(idents) => {
+                        normalize_identifier(idents.last().unwrap())
+                    }
+                    _ => format!("col_{}", i),
+                };
+                output_columns.push(ColumnInfo {
+                    name,
+                    data_type: t,
+                    check_constraint: None,
+                    has_default: false,
+                });
+            }
+            // RETURNING *
+            SelectItem::Wildcard(_) => {
+                if let Some(cols) = all_tables.get(table_name) {
+                    output_columns.extend(cols.clone());
+                }
+            }
+            // RETURNING users.*
+            SelectItem::QualifiedWildcard(kind, _) => {
+                if let SelectItemQualifiedWildcardKind::ObjectName(obj_name) = kind {
+                    let alias_name = obj_name
+                        .0
+                        .last()
+                        .map(normalize_part)
+                        .unwrap_or(obj_name.to_string());
+
+                    if let Some(cols) = working_tables.get(&alias_name) {
+                        output_columns.extend(cols.clone());
+                    }
+                }
+            }
+        }
+    }
+    Ok(output_columns)
+}
+
+fn extract_name_from_table_factor(relation: &TableFactor) -> Option<String> {
+    match relation {
+        TableFactor::Table { name, alias, .. } => {
+            if let Some(a) = alias {
+                Some(normalize_identifier(&a.name))
+            } else {
+                name.0.last().map(normalize_part)
+            }
+        }
+        _ => None,
+    }
+}
 pub fn traverse_select_output(
     body: &SetExpr,
     all_tables: &HashMap<String, Vec<ColumnInfo>>,
@@ -121,7 +249,7 @@ pub fn traverse_select_output(
                             name: normalize_identifier(alias),
                             data_type: t,
                             check_constraint: None,
-                            has_default: false
+                            has_default: false,
                         });
                     }
                     SelectItem::UnnamedExpr(expr) => {
@@ -137,7 +265,7 @@ pub fn traverse_select_output(
                             name,
                             data_type: t,
                             check_constraint: None,
-                            has_default: false
+                            has_default: false,
                         });
                     }
                     SelectItem::Wildcard(_) => {
@@ -216,7 +344,7 @@ pub fn traverse_select_output(
                     name: format!("col_{}", i),
                     data_type: t,
                     check_constraint: None,
-                    has_default: false
+                    has_default: false,
                 });
             }
 
@@ -311,7 +439,6 @@ fn resolve_table_factor(
 ) -> Result<(), String> {
     match relation {
         TableFactor::Table { name, alias, .. } => {
-
             let lookup_name = name
                 .0
                 .last()
