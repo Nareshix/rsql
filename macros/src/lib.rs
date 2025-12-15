@@ -5,7 +5,6 @@ mod utils;
 use std::{collections::HashMap, env, path::Path};
 
 use proc_macro::TokenStream;
-use proc_macro2::Span;
 use quote::quote;
 use rsql_core::utility::utils::{get_db_schema, validate_sql_syntax_with_sqlite};
 use syn::{
@@ -139,7 +138,6 @@ fn expand(
     item_struct: &mut ItemStruct,
     db_path_lit: Option<&syn::LitStr>,
 ) -> syn::Result<proc_macro2::TokenStream> {
-
     let mut all_tables = HashMap::new();
 
     if let Some(path) = db_path_lit {
@@ -185,13 +183,43 @@ fn expand(
                 return Err(syn::Error::new(sql_lit.span(), err_msg.to_string()));
             }
 
-            if sql_query.trim().to_uppercase().starts_with("CREATE TABLE"){
-                create_tables(&sql_query, &mut all_tables);
-                continue;
-            }
-
             if let Err(err_msg) = validate_insert_strict(&sql_query, &all_tables) {
                 return Err(syn::Error::new(sql_lit.span(), err_msg.to_string()));
+            }
+
+            if sql_query.trim().to_uppercase().starts_with("CREATE TABLE") {
+                create_tables(&sql_query, &mut all_tables);
+
+                field.ty = parse_quote!(rsql::internal_sqlite::efficient::lazy_statement::LazyStmt);
+                sql_assignments.push(quote! {
+                    #ident: rsql::internal_sqlite::efficient::lazy_statement::LazyStmt {
+                        sql_query: #sql_lit,
+                        stmt: std::ptr::null_mut(),
+                    }
+                });
+
+                let doc_comment = format!(" **SQL**\n```sql\n{}", format_sql(&sql_query));
+                generated_methods.push(quote! {
+                    #[doc = #doc_comment]
+                    pub fn #ident(&mut self) -> Result<(), rsql::errors::SqlWriteError> {
+                        if self.#ident.stmt.is_null() {
+                            unsafe {
+                                rsql::utility::utils::prepare_stmt(
+                                    self.__db.db,
+                                    &mut self.#ident.stmt,
+                                    self.#ident.sql_query
+                                )?;
+                            }
+                        }
+                        let mut preparred_statement = rsql::internal_sqlite::efficient::preparred_statement::PreparredStmt {
+                            stmt: self.#ident.stmt,
+                            conn: self.__db.db,
+                        };
+                        preparred_statement.step()?;
+                        Ok(())
+                    }
+                });
+                continue;
             }
 
             let select_types = match get_types_from_select(&sql_query, &all_tables) {
