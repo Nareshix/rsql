@@ -151,9 +151,7 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
                             } => {
                                 // TODO
                             }
-                            ColumnOption::Default(_) => {
-                                is_default = true
-                            }
+                            ColumnOption::Default(_) => is_default = true,
                             _ => {}
                         }
                     }
@@ -168,7 +166,7 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
                         name: normalize_identifier(&col.name),
                         data_type,
                         check_constraint: check_expr_str,
-                        has_default: is_default
+                        has_default: is_default,
                     }
                 })
                 .collect();

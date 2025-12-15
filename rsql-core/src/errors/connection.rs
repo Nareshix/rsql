@@ -11,7 +11,6 @@ pub enum SqliteOpenErrors {
     // in case of any other errors
     #[error("SQLite error {code}: {error_msg}")]
     SqliteFailure { code: c_int, error_msg: String },
-
     // TODO, handle it during compile time
     // Make sure that there is no Null byte in the file
     // #[error("{filename} contains a null byte. Make sure that there is no Null byte in the file")]
@@ -23,7 +22,6 @@ pub enum SqlitePrepareErrors {
     // in case of any other errors
     #[error("SQLite error {code}: {error_msg}")]
     SqliteFailure { code: c_int, error_msg: String },
-
     // TODO bring it to compile time
     // /// Make sure that there is no Null byte in the sql statement
     // #[error("Make sure that there is no Null byte in sql statement")]

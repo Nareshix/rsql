@@ -30,7 +30,11 @@ fn check_types(sql: &str, expected: (Vec<Type>, Vec<BaseType>)) {
     let tables = setup_tables();
     let binding_parameter_result = get_type_of_binding_parameters(sql, &tables);
 
-    let select_types: Vec<_> = get_types_from_select(sql, &tables).unwrap().into_iter().map(|c| c.data_type).collect();
+    let select_types: Vec<_> = get_types_from_select(sql, &tables)
+        .unwrap()
+        .into_iter()
+        .map(|c| c.data_type)
+        .collect();
     let binding_parameter: Vec<_> = binding_parameter_result
         .unwrap()
         .iter()
@@ -57,10 +61,7 @@ mod tests {
         check_types(
             "SELECT id, name FROM users",
             (
-                vec![
-                    t(BaseType::Integer, true),
-                    t(BaseType::Text, true),
-                ],
+                vec![t(BaseType::Integer, true), t(BaseType::Text, true)],
                 vec![],
             ),
         );
@@ -167,8 +168,6 @@ mod tests {
             (vec![t(BaseType::Real, true)], vec![]),
         );
     }
-
-  
 
     #[test]
     fn test_explicit_cast_output() {

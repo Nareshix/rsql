@@ -1,6 +1,6 @@
+use pretty_assertions::assert_eq;
 use type_inference::select_patterns::get_types_from_select;
 use type_inference::*;
-use pretty_assertions::{assert_eq};
 
 use crate::{
     expr::BaseType,
@@ -49,7 +49,11 @@ fn setup_tables() -> HashMap<String, Vec<ColumnInfo>> {
 fn check_select_types(sql: &str, expected: Vec<ColumnType>) {
     let tables = setup_tables();
 
-    let internal_types: Vec<_> = get_types_from_select(sql, &tables).unwrap().into_iter().map(|c| c.data_type).collect();
+    let internal_types: Vec<_> = get_types_from_select(sql, &tables)
+        .unwrap()
+        .into_iter()
+        .map(|c| c.data_type)
+        .collect();
 
     let select_types: Vec<ColumnType> = internal_types
         .into_iter()

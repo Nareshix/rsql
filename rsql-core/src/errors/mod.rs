@@ -2,8 +2,6 @@ use std::ffi::c_int;
 
 use crate::errors::{connection::SqlitePrepareErrors, statement::StatementStepErrors};
 
-
-
 pub mod connection;
 pub mod row;
 pub mod statement;
@@ -24,7 +22,6 @@ pub enum SqlWriteError {
     Step(#[from] StatementStepErrors),
 }
 
-
 #[derive(thiserror::Error, Debug)]
 pub enum SqlWriteBindingError {
     #[error("Failed to prepare statement: {0}")]
@@ -35,7 +32,6 @@ pub enum SqlWriteBindingError {
 
     #[error("Failed to Bind: {0}")]
     Bind(#[from] SqliteFailure),
-
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -51,5 +47,4 @@ pub enum SqlReadErrorBindings {
 
     #[error("Failed to Bind: {0}")]
     Bind(#[from] SqliteFailure),
-
 }

@@ -1,4 +1,3 @@
-
 use type_inference::*;
 
 #[cfg(test)]
@@ -33,8 +32,8 @@ mod tests {
 
     fn check_types(sql: &str, expected: Vec<BaseType>) {
         let tables = setup_tables();
-        let result = get_type_of_binding_parameters(sql, &tables)
-            .expect("Query should parse successfully");
+        let result =
+            get_type_of_binding_parameters(sql, &tables).expect("Query should parse successfully");
         let actual: Vec<BaseType> = result.iter().map(|t| t.base_type).collect();
         assert_eq!(actual, expected, "Type mismatch for query: {}", sql);
     }
