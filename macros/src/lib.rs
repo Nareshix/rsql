@@ -753,7 +753,6 @@ pub fn my_macro(input: TokenStream) -> TokenStream {
         impl rsql::traits::row_mapper::RowMapper for #mapper_struct_name {
             type Output = #struct_name;
 
-            #[inline]
             unsafe fn map_row(&self, stmt: *mut rsql::libsqlite3_sys::sqlite3_stmt) -> Self::Output {
                 #(#field_bindings)*
 
