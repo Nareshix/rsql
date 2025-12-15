@@ -174,6 +174,7 @@ fn expand(
 
     for field in fields.named.iter_mut() {
         let ident = field.ident.as_ref().unwrap();
+        let field_attrs = &field.attrs;
 
         // Check if type is sql!("...")
         if let Some(sql_lit) = parse_sql_macro_type(&field.ty)? {
@@ -198,8 +199,9 @@ fn expand(
                     }
                 });
 
-                let doc_comment = format!(" **SQL**\n```sql\n{}", format_sql(&sql_query));
+                let doc_comment = format!(" \n**SQL**\n```sql\n{}", format_sql(&sql_query));
                 generated_methods.push(quote! {
+                    #(#field_attrs)*
                     #[doc = #doc_comment]
                     pub fn #ident(&mut self) -> Result<(), rsql::errors::SqlWriteError> {
                         if self.#ident.stmt.is_null() {
@@ -277,7 +279,7 @@ fn expand(
             };
 
             let formated_sql_query = format_sql(&sql_query);
-            let doc_comment = format!(" **SQL**\n```sql\n{}", formated_sql_query);
+            let doc_comment = format!(" \n**SQL**\n```sql\n{}", formated_sql_query);
 
             field.ty = parse_quote!(rsql::internal_sqlite::efficient::lazy_statement::LazyStmt);
 
@@ -290,6 +292,7 @@ fn expand(
 
             if select_types.is_empty() && binding_types.is_empty() {
                 generated_methods.push(quote! {
+                    #(#field_attrs)*
                     #[doc = #doc_comment]
                     pub fn #ident(&mut self) -> Result<(), rsql::errors::SqlWriteError> {
                         if self.#ident.stmt.is_null() {
@@ -339,6 +342,7 @@ fn expand(
                 }
 
                 generated_methods.push(quote! {
+                    #(#field_attrs)*
                     #[doc = #doc_comment]
                     pub fn #ident(&mut self, #(#method_args),*) -> Result<(), rsql::errors::SqlWriteBindingError> {
                         if self.#ident.stmt.is_null() {
@@ -411,6 +415,7 @@ fn expand(
                 });
 
                 generated_methods.push(quote! {
+                    #(#field_attrs)*
                 #[doc = #doc_comment]
                 pub fn #ident(&mut self) -> Result<rsql::internal_sqlite::efficient::rows_dao::Rows<#mapper_struct_name>, rsql::errors::SqlReadError> {
                         if self.#ident.stmt.is_null() {
@@ -506,6 +511,7 @@ fn expand(
                 }
 
                 generated_methods.push(quote! {
+                    #(#field_attrs)*
                     #[doc = #doc_comment]
                     pub fn #ident(&mut self, #(#method_args),*) -> Result<rsql::internal_sqlite::efficient::rows_dao::Rows<#mapper_struct_name>, rsql::errors::SqlReadErrorBindings> {
                         if self.#ident.stmt.is_null() {
@@ -555,7 +561,7 @@ fn expand(
                 });
             }
 
-            let doc_comment = " **Runtime SQL**\nUnchecked query.".to_string();
+            let doc_comment = " **\nRuntime SQL**\nUnchecked query.".to_string();
 
             if let Some(ret_type) = runtime_input.return_type {
                 let mapper_type = if let syn::Type::Path(type_path) = &ret_type {
@@ -579,6 +585,7 @@ fn expand(
                 };
 
                 generated_methods.push(quote! {
+                    #(#field_attrs)*
                     #[doc = #doc_comment]
                     // SELECT
                     pub fn #ident(&mut self, #(#method_args),*) -> Result<rsql::internal_sqlite::efficient::rows_dao::Rows<#mapper_type>, rsql::errors::SqlReadErrorBindings> {
@@ -605,6 +612,7 @@ fn expand(
             } else {
                 // Non SELECT
                 generated_methods.push(quote! {
+                    #(#field_attrs)*
                     #[doc = #doc_comment]
                     pub fn #ident(&mut self, #(#method_args),*) -> Result<(), rsql::errors::SqlWriteBindingError> {
                         if self.#ident.stmt.is_null() {
