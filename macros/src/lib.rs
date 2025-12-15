@@ -756,7 +756,6 @@ pub fn my_macro(input: TokenStream) -> TokenStream {
             }
         }
 
-        // Make the const instance public
         #[allow(non_upper_case_globals)]
         pub const #struct_name: #mapper_struct_name = #mapper_struct_name;
     };
