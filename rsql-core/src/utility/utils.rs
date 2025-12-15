@@ -5,11 +5,13 @@ use libsqlite3_sys::{
     sqlite3_prepare_v2, sqlite3_step, sqlite3_stmt,
 };
 use std::{
+    collections::HashMap,
     ffi::{CStr, CString, c_char, c_void},
     fs,
     path::Path,
     ptr,
 };
+use type_inference::{expr::BaseType, table::ColumnInfo};
 
 use crate::errors::connection::SqlitePrepareErrors;
 
@@ -150,6 +152,22 @@ impl SqliteHandle {
             Ok(handle)
         }
     }
+    fn open_memory() -> Result<Self, String> {
+        unsafe {
+            let mut db = ptr::null_mut();
+            let memory_path = CString::new(":memory:").unwrap();
+            let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_MEMORY;
+
+            let rc = sqlite3_open_v2(memory_path.as_ptr(), &mut db, flags, ptr::null());
+
+            if rc != SQLITE_OK {
+                let (_, msg) = get_sqlite_failiure(db); // using your existing helper
+                return Err(format!("Failed to open memory DB: {}", msg));
+            }
+
+            Ok(SqliteHandle { db })
+        }
+    }
 }
 
 pub fn get_db_schema(db_path: &str) -> Result<Vec<String>, String> {
@@ -198,10 +216,54 @@ pub fn get_db_schema(db_path: &str) -> Result<Vec<String>, String> {
     }
 }
 
-pub fn validate_sql_syntax_with_sqlite(db_path: &str, sql: &str) -> Result<(), String> {
-    let handle = SqliteHandle::open(db_path)?;
+pub fn validate_sql_syntax_with_sqlite(
+    tables: &HashMap<String, Vec<ColumnInfo>>,
+    sql: &str,
+) -> Result<(), String> {
+    let handle = SqliteHandle::open_memory()?;
 
     unsafe {
+        for (table_name, columns) in tables {
+            let col_defs: Vec<String> = columns
+                .iter()
+                .map(|col| {
+                    let sql_type = match col.data_type.base_type {
+                        BaseType::Integer => "INTEGER",
+                        BaseType::Real => "REAL",
+                        BaseType::Bool => "BOOLEAN",
+                        BaseType::Text => "TEXT",
+                        BaseType::Null | BaseType::Unknowns | BaseType::PlaceHolder => "TEXT",
+                    };
+
+                    let constraint = if !col.data_type.nullable {
+                        " NOT NULL"
+                    } else {
+                        ""
+                    };
+
+                    format!("{} {}{}", col.name, sql_type, constraint)
+                })
+                .collect();
+
+            let create_stmt = format!("CREATE TABLE {} ({});", table_name, col_defs.join(", "));
+
+            let c_create_sql = CString::new(create_stmt).unwrap();
+            let mut err_msg: *mut c_char = ptr::null_mut();
+            let rc = sqlite3_exec(
+                handle.db,
+                c_create_sql.as_ptr(),
+                None,
+                ptr::null_mut(),
+                &mut err_msg,
+            );
+
+            if rc != SQLITE_OK {
+                if !err_msg.is_null() {
+                    sqlite3_free(err_msg as *mut c_void);
+                }
+                return Err(format!("Failed to recreate table schema: {}", table_name));
+            }
+        }
         let c_sql = CString::new(sql).map_err(|_| "Invalid SQL string".to_string())?;
         let mut stmt = ptr::null_mut();
 

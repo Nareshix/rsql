@@ -82,75 +82,77 @@ fn parse_runtime_macro(ty: &syn::Type) -> syn::Result<Option<RuntimeSqlInput>> {
 }
 #[proc_macro_attribute]
 pub fn lazy_sql(args: TokenStream, input: TokenStream) -> TokenStream {
-    let path_lit = match syn::parse::<syn::LitStr>(args) {
-        Ok(lit) => lit,
-        Err(_) => {
-            let err = syn::Error::new(
-                proc_macro2::Span::call_site(),
-                "lazy_sql requires a path argument of sql file or db file., e.g., #[lazy_sql(\"db.sql\")] or #[lazy_sql(\"db.sqlite\")] ",
-            );
+    let path_lit_opt = if args.is_empty() {
+        None
+    } else {
+        match syn::parse::<syn::LitStr>(args) {
+            Ok(lit) => {
+                let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("No MANIFEST_DIR");
+                let full_path = Path::new(&manifest_dir).join(lit.value());
+                let full_path_str = full_path.to_str().expect("Invalid path string");
 
-            let err_tokens = err.to_compile_error();
-
-            let input_tokens = proc_macro2::TokenStream::from(input);
-
-            return quote! {
-                #err_tokens
-                #input_tokens
+                Some(syn::LitStr::new(
+                    full_path_str,
+                    proc_macro2::Span::call_site(),
+                ))
             }
-            .into();
+            Err(_) => {
+                let err = syn::Error::new(
+                    proc_macro2::Span::call_site(),
+                    "lazy_sql requires either no arguments or a path string to a sql/db file.",
+                );
+                let err_tokens = err.to_compile_error();
+                let input_tokens = proc_macro2::TokenStream::from(input);
+                return quote! {
+                    #err_tokens
+                    #input_tokens
+                }
+                .into();
+            }
         }
     };
 
-    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("No MANIFEST_DIR");
-    let full_path = Path::new(&manifest_dir).join(path_lit.value());
-    let full_path_str = full_path.to_str().expect("Invalid path string");
-
-    let absolute_path_lit = syn::LitStr::new(full_path_str, Span::call_site());
-
     let mut item_struct = parse_macro_input!(input as ItemStruct);
 
-    match expand(&mut item_struct, &absolute_path_lit) {
+    match expand(&mut item_struct, path_lit_opt.as_ref()) {
         Ok(output) => {
-            let manifest_dir =
-                env::var("CARGO_MANIFEST_DIR").expect("Could not find CARGO_MANIFEST_DIR");
-
-            let full_path = Path::new(&manifest_dir).join(path_lit.value());
-            let full_path_str = full_path.to_str().expect("Path contains invalid Unicode");
+            let watcher = if let Some(abs_path) = path_lit_opt {
+                quote! {
+                    const _: &[u8] = include_bytes!(#abs_path);
+                }
+            } else {
+                quote! {}
+            };
 
             let final_output = quote! {
                 #output
-
-                // This forces Cargo to watch the file for changes
-                const _: &[u8] = include_bytes!(#full_path_str);
+                #watcher
             };
 
             final_output.into()
         }
-        Err(err) => {
-            let err_tokens = err.to_compile_error();
-            err_tokens.into()
-        }
+        Err(err) => err.to_compile_error().into(),
     }
 }
 
 fn expand(
     item_struct: &mut ItemStruct,
-    db_path_lit: &syn::LitStr,
+    db_path_lit: Option<&syn::LitStr>,
 ) -> syn::Result<proc_macro2::TokenStream> {
-    let db_path = db_path_lit.value();
-
-    let schemas = get_db_schema(&db_path).map_err(|err| {
-        syn::Error::new(
-            db_path_lit.span(),
-            format!("Failed to load DB schema: {}", err),
-        )
-    })?;
 
     let mut all_tables = HashMap::new();
 
-    for schema in schemas {
-        create_tables(&schema, &mut all_tables);
+    if let Some(path) = db_path_lit {
+        let db_path = path.value();
+        let schemas = get_db_schema(&db_path).map_err(|err| {
+            syn::Error::new(
+                db_path_lit.span(),
+                format!("Failed to load DB schema: {}", err),
+            )
+        })?;
+        for schema in schemas {
+            create_tables(&schema, &mut all_tables);
+        }
     }
 
     let struct_name = &item_struct.ident;
@@ -179,8 +181,13 @@ fn expand(
         if let Some(sql_lit) = parse_sql_macro_type(&field.ty)? {
             let sql_query = pg_cast_syntax_to_sqlite(&sql_lit.value());
 
-            if let Err(err_msg) = validate_sql_syntax_with_sqlite(&db_path, &sql_query) {
+            if let Err(err_msg) = validate_sql_syntax_with_sqlite(&all_tables, &sql_query) {
                 return Err(syn::Error::new(sql_lit.span(), err_msg.to_string()));
+            }
+
+            if sql_query.trim().to_uppercase().starts_with("CREATE TABLE"){
+                create_tables(&sql_query, &mut all_tables);
+                continue;
             }
 
             if let Err(err_msg) = validate_insert_strict(&sql_query, &all_tables) {

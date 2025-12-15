@@ -166,6 +166,7 @@ version = "0.1.0"
 dependencies = [
  "libsqlite3-sys",
  "thiserror",
+ "type_inference",
 ]
 
 [[package]]
