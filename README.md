@@ -52,9 +52,7 @@ Since SQLite defaults to nullable columns, the type inference system defaults to
 
 It is strongly recommended to use [STRICT tables](https://sqlite.org/stricttables.html) for better compile time guarantees
 
-The type inference system and compile time check also works well for `joins`, `ctes`, `window function`, `recursive ctes` and more complex scenarios.
-
-
+The type inference system and compile time check also works well for `joins`, `ctes`, `window function`, `recursive ctes`, `RETURNING` and more complex scenarios.
 
 ## Configuration Methods
 
@@ -96,7 +94,7 @@ Always prefer to use this. It automatically:
 ### The `sql_runtime!` Macro
 Use this only when u need the sql to to be runned at runtime. And there are some additional things to take note of when using this macro
 
-#### 1. Mapping to Custom Structs (`SqlMapping`)
+#### 1. `SELECT`
 You can map a query result to any struct by deriving `SqlMapping`.
 
  `SqlMapping` maps columns by **index**, not by name. The order of fields in your struct **must** match the order of columns in your `SELECT` statement exactly.
@@ -135,7 +133,7 @@ fn foo{
 ```
 
 
-#### 2. No Return Type (Void)
+#### 2. No Return Type
 For `INSERT`, `UPDATE`, or `DELETE` statements
 
 ```rust
@@ -167,3 +165,9 @@ sql!("SELECT price::text FROM items")
 
 ### Strict INSERT Validation
 `rsql` checks `INSERT` statements at compile time. If you omit a column that is **not null** and has **no default value**, your code will fail to compile.
+
+
+1. upsert
+2. transactions
+3. check_constarint in SELECT is ignored for now. aybe in future will add
+4. in case cant infer type do type casting with pg syntax or normal sqlite. but take note ::bool dont work or CAST AS bool also
