@@ -561,7 +561,7 @@ fn expand(
                 });
             }
 
-            let doc_comment = " **\nRuntime SQL**\nUnchecked query.".to_string();
+            let doc_comment = format!(" \n**SQL**\n```sql\n{}", format_sql(&sql_lit.value()));
 
             if let Some(ret_type) = runtime_input.return_type {
                 let mapper_type = if let syn::Type::Path(type_path) = &ret_type {
