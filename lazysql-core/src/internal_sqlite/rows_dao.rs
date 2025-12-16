@@ -35,12 +35,24 @@ impl<M: RowMapper> Iterator for Rows<M> {
 
 impl<M: RowMapper> Rows<M> {
     /// Returns the first row if available, or `None` if the query returned no results.
+    ///
+    /// # Example
+    /// ```
+    /// let results = db.get_active_users(false)?;
+    /// let first_result = results.first()?.unwrap(); // returns first column from the returned rows
+    /// ```
     pub fn first(mut self) -> Result<Option<M::Output>, RowMapperError> {
         self.next().transpose()
     }
 
     /// collects the iterator into a vector. Just a lightweight wrapper around `.collect()`
     /// to prevent adding type hints (`Vec<_>`) in code
+    ///
+    /// # Example
+    /// ```
+    /// let results = db.get_active_users(false)?;
+    /// let collected_results =results.all()?; // returns a vec of owned results from the returned rows
+    /// ```
     pub fn all(self) -> Result<Vec<M::Output>, RowMapperError> {
         self.collect()
     }
