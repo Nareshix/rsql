@@ -4,6 +4,12 @@
 - Ergonomic
 - Fast. Automatically caches and reuses preparred statements for you
 - However, it follows an opinionated API design
+
+## Overview
+- [Quick Start](#quick-start)
+- [Connection Methods](#connection-methods)
+- [Features](#features)
+- [Notes](#notes)
 ## Quick Start
 
 ```rust
@@ -74,7 +80,7 @@ has some nice QOL features like hover over to see sql code and good ide support
     ![Alt Text](./amedia_for_readme/error_1.png)
     ![Alt Text](./amedia_for_readme/error_2.png)
 
-## Configuration Methods
+## Connection methods
 
 `lazysql` supports 3 ways to define your schema, depending on your workflow.
 
@@ -108,7 +114,7 @@ struct App { ... }
 
 Note: for method 2 and 3, you can techinically CREATE TABLE as well but to ensure that they are taken into considreration for compile time check, add them at the top of your struct
 
-## Features & Usage
+## Features
 
 the `lazy_sql!` macro brings along `sql!` and `sql_runtime!` macro. so there is no need to import them. and they can only be used within structs defined with `lazy_sql!`
 
