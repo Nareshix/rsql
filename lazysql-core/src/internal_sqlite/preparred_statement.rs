@@ -20,7 +20,7 @@ impl Drop for PreparredStmt {
     fn drop(&mut self) {
         unsafe {
             sqlite3_reset(self.stmt);
-            sqlite3_clear_bindings(self.stmt);
+            sqlite3_clear_bindings(self.stmt); //
         }
     }
 }
@@ -39,10 +39,12 @@ impl PreparredStmt {
     }
 
     /// Strictly only used for write only operation (UPDATE, INSERT etc.)
-    /// TODO: do we need to warn whether returns nothing? like during compile time check
     pub fn step(&mut self) -> Result<(), StatementStepErrors> {
-        // TODO error handling?
         let code = unsafe { sqlite3_step(self.stmt) };
+
+        if code == SQLITE_DONE {
+            return Ok(());
+        }
 
         if code == SQLITE_BUSY {
             return Err(StatementStepErrors::SqliteBusy);
@@ -56,8 +58,6 @@ impl PreparredStmt {
             Err(StatementStepErrors::UniqueConstraint { code, error_msg })
         } else if code == SQLITE_CONSTRAINT_CHECK {
             Err(StatementStepErrors::CheckConstraint { code, error_msg })
-        } else if code == SQLITE_DONE {
-            Ok(())
         } else {
             Err(StatementStepErrors::SqliteFailure { code, error_msg })
         }
