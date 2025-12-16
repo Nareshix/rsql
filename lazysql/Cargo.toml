@@ -9,7 +9,7 @@ homepage = "https://github.com/Nareshix/LazySql"
 repository = "https://github.com/Nareshix/LazySql"
 keywords = ["database", "sqlite", "sql", "ergonomic"]
 categories = ["database", "database-implementations", "embedded"]
-
+documentation = "https://docs.rs/lazysql/latest/lazysql"
 
 [dependencies]
 lazysql-core.workspace = true
