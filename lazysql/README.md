@@ -3,8 +3,8 @@
 - LazySql is a sqlite library for rust
 - Has compile time guarantees
 - Ergonomic
-- Fast. Automatically caches and reuses preparred statements for you
-- Some downsides that may or may not get fixed in future
+- Fast. Automatically caches and reuses prepared statements for you
+- Some downsides that may or may not be fixed in future
   1. it follows an opinionated API design
   2. Doesn't support BLOBS
   3. Doesn't support Batch Execution.
@@ -15,7 +15,7 @@
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Connection methods](#connection-methods)
-  1. [Inline Schema](#1-inline-schema-standalone)
+  1. [Inline Schema](#1-inline-schema)
   2. [SQL File](#2-sql-file)
   3. [Live Database](#3-live-database)
 - [Features](#features)
@@ -29,13 +29,13 @@
 - [Type Mapping](#type-mapping)
 - [Notes](#notes)
   - [Strict INSERT Validation](#strict-insert-validation)
-  - [False positive during compile time checks](#false-positive-during-compile-time-checks)
+  - [False positives during compile time checks](#false-positive-during-compile-time-checks)
   - [Cannot type cast as Boolean](#cannot-type-cast-as-boolean)
 - [TODOS](#todos)
 
 ## Installation
 Run the following Cargo command in your project directory:
-```
+```bash
 cargo add lazysql
 ```
 OR
@@ -51,9 +51,9 @@ use lazysql::{LazyConnection, lazy_sql};
 
 #[lazy_sql]
 struct AppDatabase {
-    // all create tables must be at the top before read/write logic in order to get compile time cheks
+    // all create tables must be at the top before read/write logic in order to get compile time checks
 
-    // dont have to import sql! macro. lazy_sql brings along with it
+    // you don't have to import sql! macro. lazy_sql brings with it
     init: sql!("
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY NOT NULL,
@@ -69,7 +69,7 @@ struct AppDatabase {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // or LazyConnection::open("path/to/sql.db") do take note it lazily creates one if doesnt exist
+    // or LazyConnection::open("path/to/sql.db")  note that it lazily creates one if doesnt exist
     let conn = LazyConnection::open_memory()?;
 
     // The 'new' constructor is generated automatically
@@ -122,7 +122,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 `lazysql` supports 3 ways to define your schema, depending on your workflow.
 
-### 1. Inline Schema (Standalone)
+### 1. Inline Schema
 
 As seen in the Quick Start. Define tables inside the struct.
 
@@ -150,11 +150,11 @@ Point to an existing `.db` binary file. `lazysql` inspects the live metadata to 
 struct App { ... }
 ```
 
-Note: for method 2 and 3, you can techinically CREATE TABLE as well but to ensure that they are taken into considreration for compile time check, add them at the top of your struct
+Note: for method 2 and 3, you can technically CREATE TABLE as well but to ensure that they are taken into consideration for compile time check, add them at the top of your struct
 
 ## Features
 
-the `lazy_sql!` macro brings along `sql!` and `sql_runtime!` macro. so there is no need to import them. and they can only be used within structs defined with `lazy_sql!`
+the `lazy_sql!` macro brings `sql!` and `sql_runtime!` macro. so there is no need to import them. and they can only be used within structs defined with `lazy_sql!`
 
 Note: Both `sql!` and `sql_runtime!` accept only a single SQL statement at a time. Chaining multiple queries with semicolons (;) is not supported and will result in compile time error.
 
@@ -167,7 +167,7 @@ Note: Both `sql!` and `sql_runtime!` accept only a single SQL statement at a tim
 
 2. ### `sql_runtime!` Macro
 
-   Use this only when u need the sql to to be runned at runtime. And there are some additional things to take note of when using this macro
+   Use this only when you need the sql to to be executed at runtime. And there are some additional things to take note of when using this macro
 
    #### a. `SELECT`
 
@@ -187,7 +187,7 @@ Note: Both `sql!` and `sql_runtime!` accept only a single SQL statement at a tim
    #[lazy_sql]
    struct Analytics {
        get_stats: sql_runtime!(
-           UserStats, // pass i the struct so u can access the fields later
+           UserStats, // pass in the struct so you can access the fields later
            "SELECT count(*) as total, status
            FROM users
            WHERE id > ? AND login_count >= ?
@@ -237,14 +237,14 @@ Note: Both `sql!` and `sql_runtime!` accept only a single SQL statement at a tim
 
      ```rust
      let results = db.get_active_users(false)?;
-     let collected_results =results.all()?; // returns a vec of owned  results from the returned rows
+     let collected_results =results.all()?; // returns a Vec of owned  results from the returned rows
      ```
 
    - `first()` Returns the first row if available, or None if the query returned no results.
 
      ```rust
      let results = db.get_active_users(false)?;
-     let first_result = results.first()?.unwrap(); // returns first column from the returned rows
+     let first_result = results.first()?.unwrap(); // returns the first row from the returned rows
      ```
 
 ## Type Mapping
@@ -254,22 +254,22 @@ Note: Both `sql!` and `sql_runtime!` accept only a single SQL statement at a tim
 | `TEXT`         | `String` / `&str` |  -                                                                                                                                                                                                                                            |
 | `INTEGER`      | `i64`             |  -                                                                                                                                                                                                                                           |
 | `REAL`         | `f64`             | Includes `FLOAT`, `DOUBLE`                                                                                                                                                                                                                   |
-| `BOOLEAN`      | `bool`            | Requires `CHECK (col IN (0,1))` or `Check (col = 0 OR col = 1)`. You could techinically use `BOOL` or `BOOLEAN` as the data type when creating table (due to sqlite felxible type nature) and it would work as well. But this is discouraged |
-| Nullable       | `Option<T>`       | When a column or expr has a possibility of returning `NULL`, this will be returned. its recommended to use `NOT NULL` when creating tables so that ergonoimic wise you dont have always use Some(T) when adding parameters                   |
+| `BOOLEAN`      | `bool`            | Requires `CHECK (col IN (0,1))` or `Check (col = 0 OR col = 1)`. You could technically use `BOOL` or `BOOLEAN` as the data type when creating table (due to sqlite flexible type nature) and it would work as well. But this is discouraged |
+| Nullable       | `Option<T>`       | When a column or expr has a possibility of returning `NULL`, this will be returned. its recommended to use `NOT NULL` when creating tables so that ergonomic-wise you don't always have to use Some(T) when adding parameters                   |
 
 ## Notes
 
 ### Strict INSERT Validation
 
-- Although standard SQL allows inserting any number of columns to a table, lazysql checks INSERT statements at compile time. If you omit any column (except for `AUTOINCREMENT` and `DEFAULT`) code will fail to compile. This means you must either specify all columns explicitly, or use implicit insertion for all columns. This is done to prevent certain runtime errors such as `NOT NULL constraint failed` and more.
+- Although standard SQL allows inserting any number of columns to a table, lazysql checks INSERT statements at compile time. If you omit any column (except for `AUTOINCREMENT` and `DEFAULT`), code will fail to compile. This means you must either specify all columns explicitly, or use implicit insertion for all columns. This is done to prevent certain runtime errors such as `NOT NULL constraint failed` and more.
 
-### False positive during compile time checks
+### False positives during compile time checks
 
-- I tried my best to support as many sql and sqlite-specific queries as possible. In the extremely rare case of a false positive (valid SQL syntax **fails** or type inference **incorrectly fails**), you can fall back to the `sql_runtime!` macro. Would appreciate it if u could open an issue as well.
+- I tried my best to support as many sql and sqlite-specific queries as possible. In the extremely rare case of a False positives (valid SQL syntax **fails** or type inference **incorrectly fails**), you can fall back to the `sql_runtime!` macro. Would appreciate it if you could open an issue as well.
 
 ### Cannot type cast as Boolean
 
-- This is a limitation of sqlite since it doesn't natively have `boolean` type. I may find some workaround in the future but its not guaranteed. For now if you want to type cast as bool, u have to type cast it as an `integer` and add either 1 (`TRUE`) or 0 (`False`)
+- This is a limitation of sqlite since it doesn't natively have `boolean` type. I may find some workaround in the future but it's not guaranteed. For now if you want to type cast as bool, u have to type cast it as an `integer` and add either 1 (`TRUE`) or 0 (`False`)
 
 ## TODOS
 
