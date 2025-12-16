@@ -1,4 +1,5 @@
 # LazySql
+
 - LazySql is a sqlite library for rust
 - Has compile time guarantees
 - Ergonomic
@@ -6,10 +7,25 @@
 - However, it follows an opinionated API design
 
 # Overview
+
 - [Quick Start](#quick-start)
-- [Connection Methods](#connection-methods)
+- [Connection methods](#connection-methods)
+  1. [Inline Schema](#1-inline-schema-standalone)
+  2. [SQL File](#2-sql-file)
+  3. [Live Database](#3-live-database)
 - [Features](#features)
+  1. [`sql!` Macro](#sql-macro)
+  2. [`sql_runtime!` Macro](#sql_runtime-macro)
+     - [SELECT](#1-select)
+     - [INSERT, UPDATE, DELETE etc.](#2-no-return-type)
+  - [Other features](#other-features)
+  - [Type Mapping](#type-mapping)
 - [Notes](#notes)
+  - [Strict INSERT Validation](#strict-insert-validation)
+  - [False positive during compile time checks](#false-positive-during-compile-time-checks)
+  - [Cannot type cast as Boolean](#cannot-type-cast-as-boolean)
+- [TODOS](#todos)
+
 ## Quick Start
 
 ```rust
@@ -61,24 +77,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
 has some nice QOL features like hover over to see sql code and good ide support
 
 ![usage](./amedia_for_readme/usage.gif)
 
 ---
+
 - The type inference system and compile time check also works well for `joins`, `ctes`, `window function`, `datetime functions` `recursive ctes`, `RETURNING` and more complex scenarios.
 
 - Since SQLite defaults to nullable columns, the type inference system defaults to Option<T>. To use concrete types (e.g., String instead of Option<String>), explicitly add NOT NULL to your table definitions
-
 
 - It is strongly recommended to use [STRICT tables](https://sqlite.org/stricttables.html) for better compile time guarantees. Recommended to use [WITHOUT ROWID](https://www.sqlite.org/withoutrowid.html).
 
 - There will be rare scenarios when a type is impossible to infer. `LazySql` will tell you specifically which binding parameter or expression cannot be inferred and will suggest using type casting via PostgreSQL's `::` operator or standard SQL's `CAST AS`. Note that you can't type cast as `boolean` for now.
 
-    For instance,
+  For instance,
 
-    ![Alt Text](./amedia_for_readme/error_1.png)
-    ![Alt Text](./amedia_for_readme/error_2.png)
+  ![Alt Text](./amedia_for_readme/error_1.png)
+  ![Alt Text](./amedia_for_readme/error_2.png)
 
 ## Connection methods
 
@@ -118,71 +135,71 @@ Note: for method 2 and 3, you can techinically CREATE TABLE as well but to ensur
 
 the `lazy_sql!` macro brings along `sql!` and `sql_runtime!` macro. so there is no need to import them. and they can only be used within structs defined with `lazy_sql!`
 
-### The `sql!` Macro
+1. ### `sql!` Macro
 
-Always prefer to use this. It automatically:
+   Always prefer to use this. It automatically:
 
-1.  **Infers Inputs:** Maps `?` to Rust types (`i64`, `f64`, `String`, `bool`).
-2.  **Generates Outputs:** For `SELECT` queries, creates a struct named after the field
+   1. **Infers Inputs:** Maps `?` to Rust types (`i64`, `f64`, `String`, `bool`).
+   2. **Generates Outputs:** For `SELECT` queries, creates a struct named after the field
 
-### The `sql_runtime!` Macro
+2. ### `sql_runtime!` Macro
 
-Use this only when u need the sql to to be runned at runtime. And there are some additional things to take note of when using this macro
+   Use this only when u need the sql to to be runned at runtime. And there are some additional things to take note of when using this macro
 
-#### 1. `SELECT`
+   #### a. `SELECT`
 
-You can map a query result to any struct by deriving `SqlMapping`.
+   You can map a query result to any struct by deriving `SqlMapping`.
 
-`SqlMapping` maps columns by **index**, not by name. The order of fields in your struct **must** match the order of columns in your `SELECT` statement exactly.
+   `SqlMapping` maps columns by **index**, not by name. The order of fields in your struct **must** match the order of columns in your `SELECT` statement exactly.
 
-```rust
-use lazysql::{SqlMapping, LazyConnection, lazy_sql};
+   ```rust
+   use lazysql::{SqlMapping, LazyConnection, lazy_sql};
 
-#[derive(Debug, SqlMapping)]
-struct UserStats {
-    total: i64,      // Maps to column index 0
-    status: String,  // Maps to column index 1
-}
+   #[derive(Debug, SqlMapping)]
+   struct UserStats {
+       total: i64,      // Maps to column index 0
+       status: String,  // Maps to column index 1
+   }
 
-#[lazy_sql]
-struct Analytics {
-    get_stats: sql_runtime!(
-        UserStats, // pass i the struct so u can access the fields later
-        "SELECT count(*) as total, status
-         FROM users
-         WHERE id > ? AND login_count >= ?
-         GROUP BY status",
-        i64, // Maps to 1st '?'
-        i64  // Maps to 2nd '?'
-    )
-}
+   #[lazy_sql]
+   struct Analytics {
+       get_stats: sql_runtime!(
+           UserStats, // pass i the struct so u can access the fields later
+           "SELECT count(*) as total, status
+           FROM users
+           WHERE id > ? AND login_count >= ?
+           GROUP BY status",
+           i64, // Maps to 1st '?'
+           i64  // Maps to 2nd '?'
+       )
+   }
 
-fn foo{
-    let conn = LazyConnection::open_memory()?;
-    let mut db = Analytics::new(&conn);
+   fn foo{
+       let conn = LazyConnection::open_memory()?;
+       let mut db = Analytics::new(&conn);
 
-    let foo = db.get_stats(100, 5)?;
-    for i in foo{
-        // i.total and i.status is accessible
-    }
-}
-```
+       let foo = db.get_stats(100, 5)?;
+       for i in foo{
+           // i.total and i.status is accessible
+       }
+   }
+   ```
 
-#### 2. No Return Type
+   #### b. No Return Type
 
-For `INSERT`, `UPDATE`, or `DELETE` statements
+   For `INSERT`, `UPDATE`, or `DELETE` statements
 
-```rust
-#[lazy_sql]
-struct Logger {
-    log: sql_runtime!("INSERT INTO logs (msg, level) VALUES (?, ?)", String, i64)
-}
-// can continue to use it normally.
-```
+   ```rust
+   #[lazy_sql]
+   struct Logger {
+       log: sql_runtime!("INSERT INTO logs (msg, level) VALUES (?, ?)", String, i64)
+   }
+   // can continue to use it normally.
+   ```
 
-### Other features
+3. ### Postgres `::` type casting syntax
 
-1. supports postgres `::` type casting syntax. Note for now bool aint spported TODO
+   Note: bool type casting is not supported for now
 
    ```rust
    sql!("SELECT price::text FROM items")
@@ -191,27 +208,23 @@ struct Logger {
    // "SELECT CAST(price AS TEXT) FROM items"
    ```
 
-2. iterators has 2 additional methods. `all()` and `first()`
+4. ### `all()` and `first()` methods
 
    - `all()` collects the iterator into a vector. Just a lightweight wrapper around .collect() to prevent adding type hints (Vec<\_>) in code
 
+     ```rust
+     let results = db.get_active_users(false)?;
+     let collected_results =results.all()?; // returns a vec of owned  results from the returned rows
+     ```
+
    - `first()` Returns the first row if available, or None if the query returned no results.
 
-   e.g.
+     ```rust
+     let results = db.get_active_users(false)?;
+     let first_result = results.first()?.unwrap(); // returns first column from the returned rows
+     ```
 
-   ```rust
-   let results = db.get_active_users(false)?;
-   let first_result = results.first()?.unwrap(); // returns first column from the returned rows
-   ```
-
-   and
-
-   ```rust
-   let results = db.get_active_users(false)?;
-   let collected_results =results.all()?; // returns a vec of owned  results from the returned rows
-   ```
-
-### Type Mapping
+## Type Mapping
 
 | SQLite Context | Rust Type         | Notes                                                                                                                                                                                                                                        |
 | :------------- | :---------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -221,21 +234,22 @@ struct Logger {
 | `BOOLEAN`      | `bool`            | Requires `CHECK (col IN (0,1))` or `Check (col = 0 OR col = 1)`. You could techinically use `BOOL` or `BOOLEAN` as the data type when creating table (due to sqlite felxible type nature) and it would work as well. But this is discouraged |
 | Nullable       | `Option<T>`       | When a column or expr has a possibility of returning `NULL`, this will be returned. its recommended to use `NOT NULL` when creating tables so that ergonoimic wise you dont have always use Some(T) when adding parameters                   |
 
-
 ## Notes
 
 ### Strict INSERT Validation
 
 - Although standard SQL allows inserting any number of columns to a table, lazysql checks INSERT statements at compile time. If you omit any column (except for `AUTOINCREMENT` and `DEFAULT`) code will fail to compile. This means you must either specify all columns explicitly, or use implicit insertion for all columns. This is done to prevent certain runtime errors such as `NOT NULL constraint failed` and more.
 
-
 ### False positive during compile time checks
+
 - I tried my best to support as many sql and sqlite-specific queries as possible. In the extremely rare case of a false positive (valid SQL syntax **fails** or type inference **incorrectly fails**), you can fall back to the `sql_runtime!` macro. Would appreciate it if u could open an issue as well.
 
 ### Cannot type cast as Boolean
+
 - This is a limitation of sqlite since it doesn't natively have `boolean` type. I may find some workaround in the future but its not guaranteed. For now if you want to type cast as bool, u have to type cast it as an `integer` and add either 1 (`TRUE`) or 0 (`False`)
 
 ## TODOS
+
 1. [upsert](https://www.cockroachlabs.com/blog/sql-upsert/)
 2. transactions
 3. check_constarint field in SELECT is ignored for now. maybe in future will make use of this field
