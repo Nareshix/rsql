@@ -2,6 +2,8 @@
 name = "type_inference"
 version = "0.1.0"
 edition = "2024"
+description = "type inference for lazysql"
+license = "MIT"
 
 [dependencies]
 pretty_assertions = "1.4.1"
