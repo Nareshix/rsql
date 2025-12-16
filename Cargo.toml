@@ -1,10 +1,19 @@
 [workspace]
+resolver = "3"
 members = [
     "lazysql",
-    "lazysql_macros",
-    "tests",
     "lazysql-core",
-    "type_inference"
+    "lazysql_macros",
+    "type_inference",
+    "tests"
 ]
 
-resolver = "3"
+package.version = "0.1.1"
+package.edition = "2024"
+package.license = "MIT"
+
+
+[workspace.dependencies]
+lazysql-core = { path = "./lazysql-core", version = "0.1.1" }
+lazysql_macros = { path = "./lazysql_macros", version = "0.1.1" }
+type_inference = { path = "./type_inference", version = "0.1.1" }

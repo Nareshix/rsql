@@ -1,12 +1,12 @@
 [package]
 name = "lazysql-core"
-version = "0.1.1"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 description = "core logic for lazysql"
-license = "MIT"
 
 
 [dependencies]
 libsqlite3-sys = {version = "0.35.0", features = ["bundled"]}
 thiserror = "2.0.17"
-type_inference ={ path = "../type_inference", version = "0.1.0"}
+type_inference.workspace = true
