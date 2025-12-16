@@ -1,7 +1,5 @@
 use libsqlite3_sys::{
-    SQLITE_BUSY, SQLITE_CONSTRAINT_CHECK, SQLITE_CONSTRAINT_FOREIGNKEY, SQLITE_CONSTRAINT_UNIQUE,
-    SQLITE_DONE, SQLITE_OK, sqlite3, sqlite3_clear_bindings, sqlite3_reset, sqlite3_step,
-    sqlite3_stmt,
+    SQLITE_BUSY, SQLITE_CONSTRAINT_CHECK, SQLITE_CONSTRAINT_FOREIGNKEY, SQLITE_CONSTRAINT_UNIQUE, SQLITE_DONE, SQLITE_OK, SQLITE_ROW, sqlite3, sqlite3_clear_bindings, sqlite3_reset, sqlite3_step, sqlite3_stmt
 };
 
 use crate::{
@@ -20,7 +18,7 @@ impl Drop for PreparredStmt {
     fn drop(&mut self) {
         unsafe {
             sqlite3_reset(self.stmt);
-            sqlite3_clear_bindings(self.stmt);
+            // sqlite3_clear_bindings(self.stmt);
         }
     }
 }
@@ -42,7 +40,7 @@ impl PreparredStmt {
     pub fn step(&mut self) -> Result<(), StatementStepErrors> {
         let code = unsafe { sqlite3_step(self.stmt) };
 
-        if code == SQLITE_DONE {
+        if code == SQLITE_DONE  || code == SQLITE_ROW {
             return Ok(());
         }
 
