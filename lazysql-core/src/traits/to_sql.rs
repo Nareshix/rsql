@@ -2,8 +2,6 @@ use std::ffi::CString;
 
 use libsqlite3_sys::{self as ffi, SQLITE_TRANSIENT, sqlite3_stmt};
 
-// TODO is there a way to avoid conversion? or is it unecessary? test the speed later
-
 // BLOB not implemented yet. TODO
 pub trait ToSql {
     /// - it is ok for it to be self consuming (tho it only applies to String)
@@ -17,15 +15,24 @@ pub trait ToSql {
 
 impl ToSql for String {
     unsafe fn bind_to(self, stmt: *mut sqlite3_stmt, index: i32) -> i32 {
-        let c_str = CString::new(self).unwrap(); //TODO
-        unsafe { ffi::sqlite3_bind_text(stmt, index, c_str.as_ptr(), -1, SQLITE_TRANSIENT()) }
+        unsafe { self.as_str().bind_to(stmt, index) }
     }
 }
 
 impl ToSql for &str {
     unsafe fn bind_to(self, stmt: *mut sqlite3_stmt, index: i32) -> i32 {
-        let c_str = CString::new(self).unwrap(); //TODO
-        unsafe { ffi::sqlite3_bind_text(stmt, index, c_str.as_ptr(), -1, SQLITE_TRANSIENT()) }
+        let bytes = self.as_bytes();
+        let len = bytes.len() as i32;
+
+        unsafe {
+            ffi::sqlite3_bind_text(
+                stmt,
+                index,
+                bytes.as_ptr() as *const _,
+                len,
+                SQLITE_TRANSIENT(),
+            )
+        }
     }
 }
 
