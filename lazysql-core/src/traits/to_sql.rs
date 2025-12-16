@@ -1,5 +1,3 @@
-use std::ffi::CString;
-
 use libsqlite3_sys::{self as ffi, SQLITE_TRANSIENT, sqlite3_stmt};
 
 // BLOB not implemented yet. TODO
