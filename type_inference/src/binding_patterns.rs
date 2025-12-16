@@ -712,6 +712,8 @@ fn traverse_expr(
             data_type,
             ..
         } => {
+            let nullable = parent_hint.map(|h| h.nullable).unwrap_or(true);
+
             let target_type = match data_type {
                 DataType::Int(_)
                 | DataType::Integer(_)
@@ -723,7 +725,7 @@ fn traverse_expr(
                 | DataType::Int2(_)
                 | DataType::Int8(_) => Some(Type {
                     base_type: BaseType::Integer,
-                    nullable: true,
+                    nullable,
                     contains_placeholder: false,
                 }),
 
@@ -735,7 +737,7 @@ fn traverse_expr(
                 | DataType::Text
                 | DataType::Clob(_) => Some(Type {
                     base_type: BaseType::Text,
-                    nullable: true,
+                    nullable,
                     contains_placeholder: false,
                 }),
 
@@ -746,13 +748,13 @@ fn traverse_expr(
                 | DataType::Decimal(_)
                 | DataType::Float(_) => Some(Type {
                     base_type: BaseType::Real,
-                    nullable: true,
+                    nullable,
                     contains_placeholder: false,
                 }),
 
                 DataType::Boolean => Some(Type {
                     base_type: BaseType::Bool,
-                    nullable: true,
+                    nullable,
                     contains_placeholder: false,
                 }),
 
