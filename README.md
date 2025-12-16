@@ -1,3 +1,9 @@
+# LazySql
+- LazySql is a sqlite library for rust
+- Has compile time guarantees
+- Ergonomic
+- Fast. Automatically caches and reuses preparred statements for you
+- However, it follows an opinionated API design
 ## Quick Start
 
 ```rust
@@ -49,10 +55,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+has some nice QOL features like hover over to see sql code and good ide support
+
+![usage](./amedia_for_readme/usage.gif)
+
+---
 
 Since SQLite defaults to nullable columns, the type inference system defaults to Option<T>. To use concrete types (e.g., String instead of Option<String>), explicitly add NOT NULL to your table definitions
 
-It is strongly recommended to use [STRICT tables](https://sqlite.org/stricttables.html) for better compile time guarantees
+
+It is strongly recommended to use [STRICT tables](https://sqlite.org/stricttables.html) for better compile time guarantees. Recommended to use [WITHOUT ROWID](https://www.sqlite.org/withoutrowid.html).
+
+There will be rare scenarios when a type is impossible to infer (e.g. `SELECT ?`). `LazySql` will tell you specifically which binding parameter or expression cannot be inferred and will suggest using type casting via PostgreSQL's `::` operator or standard SQL's `CAST AS`
+
+For instance
+![Alt Text](./amedia_for_readme/error_1.png)
+![Alt Text](./amedia_for_readme/error_2.png)
 
 The type inference system and compile time check also works well for `joins`, `ctes`, `window function`, `recursive ctes`, `RETURNING` and more complex scenarios.
 
@@ -75,7 +93,7 @@ Point to a `.sql` file. The compile time checks will be done against this sql fi
 
 ```rust
 #[lazy_sql("schema.sql")]
-// you dont have to create tables and go on writing read/write sql queries and get compile time guarantees.
+// you dont have to create tables. Any read/write sql queries gets compile time guarantees.
 struct App { ... }
 ```
 
@@ -156,7 +174,7 @@ struct Logger {
 // can continue to use it normally.
 ```
 
-## Other features
+### Other features
 
 1. supports postgres `::` type casting syntax. Note for now bool aint spported TODO
 
@@ -196,13 +214,20 @@ struct Logger {
 | `BOOLEAN`      | `bool`            | Requires `CHECK (col IN (0,1))` or `Check (col = 0 OR col = 1)`. You could techinically use `BOOL` or `BOOLEAN` as the data type when creating table (due to sqlite felxible type nature) and it would work as well. But this is discouraged |
 | Nullable       | `Option<T>`       | When a column or expr has a possibility of returning `NULL`, this will be returned. its recommended to use `NOT NULL` when creating tables so that ergonoimic wise you dont have always use Some(T) when adding parameters                   |
 
+
+## Notes
+
 ### Strict INSERT Validation
 
-`lazysql` checks `INSERT` statements at compile time. If you omit a column that is **not null** and has **no default value**, your code will fail to compile.
+Although standard SQL allows inserting any number of columns to a table, lazysql checks INSERT statements at compile time. If you omit any column (except for `AUTOINCREMENT` and `DEFAULT`) code will fail to compile. This means you must either specify all columns explicitly, or use implicit insertion for all columns. This is done to prevent certain runtime errors such as `NOT NULL constraint failed` and more.
 
+
+### False positive during compile time checks
+I tried my best to support as many sql and sqlite-specific queries as possible. But in the extrememly rare case of false positive (is meant to )
+
+## TODOS
 1. upsert
 2. transactions
-3. check_constarint in SELECT is ignored for now. aybe in future will add
+3. check_constarint in SELECT is ignored for now. maybe in future will make use of this col
 4. in case cant infer type do type casting with pg syntax or normal sqlite. but take note ::bool dont work or CAST AS bool also
-5. first() and all() from iterator
-6. cant cast as bool
+5. cant cast as bool
