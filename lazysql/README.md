@@ -83,11 +83,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-has some nice QOL features like hover over to see sql code and good ide support
-
-![usage](https://github.com/Nareshix/LazySql/raw/main/amedia_for_readme/usage.gif)
-
 ---
+
+- `LazySql` has some nice QOL features like hover over to see sql code and good ide support
+
+    ![usage](https://github.com/Nareshix/LazySql/raw/main/amedia_for_readme/usage.gif)
+
 
 - The type inference system and compile time check also works well for `joins`, `ctes`, `window function`, `datetime functions` `recursive ctes`, `RETURNING` and more complex scenarios.
 
