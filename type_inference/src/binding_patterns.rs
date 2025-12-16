@@ -441,13 +441,17 @@ fn traverse_expr(
             }
 
             if let sqlparser::ast::Value::Placeholder(_) = val.value {
-                let t = parent_hint
-                    .ok_or_else(|| err_from_expr(expr, "Unable to infer type. Consider casting"))?;
+                let t = parent_hint.ok_or_else(|| {
+                    err_from_expr(
+                        expr,
+                        "Unable to infer type. Consider casting with `::` or `CAST AS`",
+                    )
+                })?;
 
                 if t.base_type == BaseType::PlaceHolder || t.base_type == BaseType::Unknowns {
                     return Err(err_from_expr(
                         expr,
-                        "Unable to infer type. Consider Casting",
+                        "Unable to infer type. Consider casting with `::` or `CAST AS`",
                     ));
                 }
 
@@ -608,7 +612,7 @@ fn traverse_expr(
             let err_mapper = |mut e: InferenceError| {
                 e.start = parent_span.start.into();
                 e.end = parent_span.end.into();
-                e.message = format!("{} '{left} {op} {right}'. Consider casting.", e.message);
+                e.message = format!("{} in expression '{left} {op} {right}'", e.message);
                 e
             };
 
@@ -648,7 +652,10 @@ fn traverse_expr(
             let err_mapper = |mut e: InferenceError| {
                 e.start = parent_span.start.into();
                 e.end = parent_span.end.into();
-                e.message = format!("{} '{expr}'. Consider Casting", e.message);
+                e.message = format!(
+                    "{} '{expr}'. Consider casting with `::` or `CAST AS`",
+                    e.message
+                );
                 e
             };
 
@@ -846,12 +853,14 @@ fn traverse_expr(
                         };
 
                         e.message = format!(
-                            "Unable to infer type in 'THEN {}{}. Consider casting'",
+                            "Unable to infer type in 'THEN {}{}. Consider casting with `::` or `CAST AS`'",
                             cond.result, else_text
                         );
                     } else {
-                        e.message =
-                            format!("{} in 'THEN {} Consider casting'", e.message, cond.result);
+                        e.message = format!(
+                            "{} in 'THEN {} Consider casting with `::` or `CAST AS`'",
+                            e.message, cond.result
+                        );
                     }
                     return Err(e);
                 }
@@ -870,11 +879,14 @@ fn traverse_expr(
                     e.start = case_span.start.into();
                     e.end = case_span.end.into();
                     e.message = format!(
-                        "Unable to infer type in 'ELSE {}. Consider casting'",
+                        "Unable to infer type in 'ELSE {}. Consider casting with `::` or `CAST AS`'",
                         else_expr
                     );
                 } else {
-                    e.message = format!("{} in 'ELSE {}. Consider Casting'", e.message, else_expr);
+                    e.message = format!(
+                        "{} in 'ELSE {}. Consider casting with `::` or `CAST AS`'",
+                        e.message, else_expr
+                    );
                 }
                 return Err(e);
             }
@@ -949,7 +961,7 @@ fn traverse_expr(
                 e.start = parent_span.start.into();
                 e.end = parent_span.end.into();
                 e.message = format!(
-                    "{} unable to infer expr in function {}. Consider casting.",
+                    "{} unable to infer expr in function {}. Consider casting with `::` or `CAST AS`.",
                     e.message, name
                 );
                 e
@@ -1039,7 +1051,7 @@ fn traverse_expr(
                 e.start = parent_span.start.into();
                 e.end = parent_span.end.into();
                 e.message = format!(
-                    "{} unable to infer expr in function {}. Consider casting.",
+                    "{} unable to infer expr in function {}. Consider casting with `::` or `CAST AS`.",
                     e.message, name
                 );
                 e
