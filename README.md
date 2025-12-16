@@ -67,9 +67,10 @@ Since SQLite defaults to nullable columns, the type inference system defaults to
 
 It is strongly recommended to use [STRICT tables](https://sqlite.org/stricttables.html) for better compile time guarantees. Recommended to use [WITHOUT ROWID](https://www.sqlite.org/withoutrowid.html).
 
-There will be rare scenarios when a type is impossible to infer (e.g. `SELECT ?`). `LazySql` will tell you specifically which binding parameter or expression cannot be inferred and will suggest using type casting via PostgreSQL's `::` operator or standard SQL's `CAST AS`
+There will be rare scenarios when a type is impossible to infer. `LazySql` will tell you specifically which binding parameter or expression cannot be inferred and will suggest using type casting via PostgreSQL's `::` operator or standard SQL's `CAST AS`
 
-For instance
+For instance,
+
 ![Alt Text](./amedia_for_readme/error_1.png)
 ![Alt Text](./amedia_for_readme/error_2.png)
 
