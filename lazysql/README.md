@@ -106,7 +106,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 - The type inference system and compile time check also works well for `JOIN`, `CASE` `ctes`, `window function`, `datetime functions` `recursive ctes`, `RETURNING` and more complex scenarios. You can even run `PRAGMA` statements with it.
 
-- Since SQLite defaults to nullable columns, the type inference system defaults to Option<T>. To use concrete types (e.g., String instead of Option<String>), explicitly add NOT NULL to your table definitions
+- Since SQLite defaults to nullable columns, the type inference system defaults to Option<T>. To use concrete types (e.g., String instead of Option<String>), explicitly add **NOT NULL** to your table columns
 
 - It is strongly recommended to use [STRICT tables](https://sqlite.org/stricttables.html) for better compile time guarantees. Recommended to use [WITHOUT ROWID](https://www.sqlite.org/withoutrowid.html).
 
