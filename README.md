@@ -67,7 +67,7 @@ has some nice QOL features like hover over to see sql code and good ide support
 
 - It is strongly recommended to use [STRICT tables](https://sqlite.org/stricttables.html) for better compile time guarantees. Recommended to use [WITHOUT ROWID](https://www.sqlite.org/withoutrowid.html).
 
-- There will be rare scenarios when a type is impossible to infer. `LazySql` will tell you specifically which binding parameter or expression cannot be inferred and will suggest using type casting via PostgreSQL's `::` operator or standard SQL's `CAST AS`
+- There will be rare scenarios when a type is impossible to infer. `LazySql` will tell you specifically which binding parameter or expression cannot be inferred and will suggest using type casting via PostgreSQL's `::` operator or standard SQL's `CAST AS`. Note that you can't type cast as `boolean` for now.
 
     For instance,
     
@@ -80,7 +80,7 @@ has some nice QOL features like hover over to see sql code and good ide support
 
 ### 1. Inline Schema (Standalone)
 
-As seen in the Quick Start. Define tables inside the struct. Useful for prototypes or self-contained modules.
+As seen in the Quick Start. Define tables inside the struct.
 
 ```rust
 #[lazy_sql]
@@ -89,7 +89,7 @@ struct App { ... }
 
 ### 2. SQL File
 
-Point to a `.sql` file. The compile time checks will be done against this sql file (ensure that there is `CREATE TABLE`) `lazysql` watches this file; if you edit it, rust recompiles automatically to ensure type safety.
+Point to a `.sql` file. The compile time checks will be done against this sql file (ensure that there is `CREATE TABLE`). `lazysql` watches this file; if you edit it, rust recompiles automatically to ensure type safety.
 
 ```rust
 #[lazy_sql("schema.sql")]
@@ -226,9 +226,11 @@ struct Logger {
 ### False positive during compile time checks
 - I tried my best to support as many sql and sqlite-specific queries as possible. In the extremely rare case of a false positive (valid SQL syntax **fails** or type inference **incorrectly fails**), you can fall back to the `sql_runtime!` macro. Would appreciate it if u could open an issue as well.
 
+### Cannot type cast as Boolean
+- This is a limitation of sqlite since it doesn't natively have `boolean` type. I may find some workaround in the future but its not guaranteed. For now if you want to type cast as bool, u have to type cast it as an `integer` and add either 1 (`TRUE`) or 0 (`False`)
+
 ## TODOS
 1. upsert
 2. transactions
-3. check_constarint in SELECT is ignored for now. maybe in future will make use of this col
-4. in case cant infer type do type casting with pg syntax or normal sqlite. but take note ::bool dont work or CAST AS bool also
-5. cant cast as bool
+3. check_constarint field in SELECT is ignored for now. maybe in future will make use of this field
+4. cant cast as bool
