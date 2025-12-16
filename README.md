@@ -30,7 +30,16 @@
 - [TODOS](#todos)
 
 ## Installation
+Run the following Cargo command in your project directory:
+```
+cargo add lazysql
+```
+OR
 
+ Go to [LazySql's crates.io](https://crates.io/crates/lazysql) to get the latest version. Add  that to following line to your Cargo.toml:
+```toml
+lazysql = "*" # latest version
+```
 ## Quick Start
 
 ```rust
