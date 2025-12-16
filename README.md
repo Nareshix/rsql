@@ -70,10 +70,10 @@ has some nice QOL features like hover over to see sql code and good ide support
 - There will be rare scenarios when a type is impossible to infer. `LazySql` will tell you specifically which binding parameter or expression cannot be inferred and will suggest using type casting via PostgreSQL's `::` operator or standard SQL's `CAST AS`. Note that you can't type cast as `boolean` for now.
 
     For instance,
-    
+
     ![Alt Text](./amedia_for_readme/error_1.png)
     ![Alt Text](./amedia_for_readme/error_2.png)
-    
+
 ## Configuration Methods
 
 `lazysql` supports 3 ways to define your schema, depending on your workflow.
@@ -230,7 +230,7 @@ struct Logger {
 - This is a limitation of sqlite since it doesn't natively have `boolean` type. I may find some workaround in the future but its not guaranteed. For now if you want to type cast as bool, u have to type cast it as an `integer` and add either 1 (`TRUE`) or 0 (`False`)
 
 ## TODOS
-1. upsert
+1. [upsert](https://www.cockroachlabs.com/blog/sql-upsert/)
 2. transactions
 3. check_constarint field in SELECT is ignored for now. maybe in future will make use of this field
 4. cant cast as bool
