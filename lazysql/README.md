@@ -156,6 +156,8 @@ Note: for method 2 and 3, you can techinically CREATE TABLE as well but to ensur
 
 the `lazy_sql!` macro brings along `sql!` and `sql_runtime!` macro. so there is no need to import them. and they can only be used within structs defined with `lazy_sql!`
 
+Note: Both `sql!` and `sql_runtime!` accept only a single SQL statement at a time. Chaining multiple queries with semicolons (;) is not supported and will result in compile time error.
+
 1. ### `sql!` Macro
 
    Always prefer to use this. It automatically:
