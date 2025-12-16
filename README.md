@@ -60,20 +60,20 @@ has some nice QOL features like hover over to see sql code and good ide support
 ![usage](./amedia_for_readme/usage.gif)
 
 ---
-The type inference system and compile time check also works well for `joins`, `ctes`, `window function`, `recursive ctes`, `RETURNING` and more complex scenarios.
+- The type inference system and compile time check also works well for `joins`, `ctes`, `window function`, `recursive ctes`, `RETURNING` and more complex scenarios.
 
-Since SQLite defaults to nullable columns, the type inference system defaults to Option<T>. To use concrete types (e.g., String instead of Option<String>), explicitly add NOT NULL to your table definitions
+- Since SQLite defaults to nullable columns, the type inference system defaults to Option<T>. To use concrete types (e.g., String instead of Option<String>), explicitly add NOT NULL to your table definitions
 
 
-It is strongly recommended to use [STRICT tables](https://sqlite.org/stricttables.html) for better compile time guarantees. Recommended to use [WITHOUT ROWID](https://www.sqlite.org/withoutrowid.html).
+- It is strongly recommended to use [STRICT tables](https://sqlite.org/stricttables.html) for better compile time guarantees. Recommended to use [WITHOUT ROWID](https://www.sqlite.org/withoutrowid.html).
 
-There will be rare scenarios when a type is impossible to infer. `LazySql` will tell you specifically which binding parameter or expression cannot be inferred and will suggest using type casting via PostgreSQL's `::` operator or standard SQL's `CAST AS`
+- There will be rare scenarios when a type is impossible to infer. `LazySql` will tell you specifically which binding parameter or expression cannot be inferred and will suggest using type casting via PostgreSQL's `::` operator or standard SQL's `CAST AS`
 
-For instance,
-
-![Alt Text](./amedia_for_readme/error_1.png)
-![Alt Text](./amedia_for_readme/error_2.png)
-
+    For instance,
+    
+    ![Alt Text](./amedia_for_readme/error_1.png)
+    ![Alt Text](./amedia_for_readme/error_2.png)
+    
 ## Configuration Methods
 
 `lazysql` supports 3 ways to define your schema, depending on your workflow.
