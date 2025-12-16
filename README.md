@@ -85,7 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 has some nice QOL features like hover over to see sql code and good ide support
 
-![usage](/amedia_for_readme/usage.gif)
+![usage](https://github.com/Nareshix/LazySql/raw/main/amedia_for_readme/usage.gif)
 
 ---
 
@@ -99,8 +99,9 @@ has some nice QOL features like hover over to see sql code and good ide support
 
   For instance,
 
-  ![Alt Text](/amedia_for_readme/error_1.png)
-  ![Alt Text](/amedia_for_readme/error_2.png)
+  ![error_1](https://github.com/Nareshix/LazySql/blob/main/amedia_for_readme/error_1.png?raw=true)
+
+  ![error_2](https://github.com/Nareshix/LazySql/blob/main/amedia_for_readme/error_2.png?raw=true)
 
 ## Connection methods
 
