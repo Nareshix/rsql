@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 lazysql-core = { path = "../lazysql-core" }
-macros = { path = "../macros" }
+lazysql_macros = { path = "../lazysql_macros" }
