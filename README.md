@@ -18,8 +18,10 @@
   2. [`sql_runtime!` Macro](#sql_runtime-macro)
      - [SELECT](#1-select)
      - [INSERT, UPDATE, DELETE etc.](#2-no-return-type)
-  - [Other features](#other-features)
-  - [Type Mapping](#type-mapping)
+  3. [postgres `::` syntax](#postgres--type-casting-syntax)
+  4. [`all()` and `first()` methods for iterators](#all-and-first-methods-for-iterators)
+
+- [Type Mapping](#type-mapping)
 - [Notes](#notes)
   - [Strict INSERT Validation](#strict-insert-validation)
   - [False positive during compile time checks](#false-positive-during-compile-time-checks)
@@ -208,7 +210,7 @@ the `lazy_sql!` macro brings along `sql!` and `sql_runtime!` macro. so there is 
    // "SELECT CAST(price AS TEXT) FROM items"
    ```
 
-4. ### `all()` and `first()` methods
+4. ### `all()` and `first()` methods for iterators
 
    - `all()` collects the iterator into a vector. Just a lightweight wrapper around .collect() to prevent adding type hints (Vec<\_>) in code
 
