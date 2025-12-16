@@ -134,6 +134,10 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
                     let mut is_detected_boolean = false;
                     let mut is_default = false;
 
+                    // SQLite logic: check if type is INTEGER
+                    let type_str = col.data_type.to_string().to_uppercase();
+                    let is_integer = type_str.contains("INT");
+
                     for option_def in &col.options {
                         match &option_def.option {
                             ColumnOption::Check(expr) => {
@@ -149,9 +153,18 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
                             ColumnOption::Unique {
                                 is_primary: true, ..
                             } => {
-                                // TODO
+                                // In SQLite, "INTEGER PRIMARY KEY" (with or without Autoincrement)
+                                // automatically defaults to the ROWID, so it has a default.
+                                // if is_integer {
+                                //     is_default = true;
+                                // }
                             }
                             ColumnOption::Default(_) => is_default = true,
+                            ColumnOption::DialectSpecific(tokens) => {
+                                if tokens.iter().any(|t| t.to_string().to_uppercase() == "AUTOINCREMENT") {
+                                    is_default = true;
+                                }
+                            }
                             _ => {}
                         }
                     }
