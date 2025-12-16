@@ -5,7 +5,7 @@
 - Fast. Automatically caches and reuses preparred statements for you
 - However, it follows an opinionated API design
 
-## Overview
+# Overview
 - [Quick Start](#quick-start)
 - [Connection Methods](#connection-methods)
 - [Features](#features)
