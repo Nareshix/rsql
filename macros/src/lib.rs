@@ -237,7 +237,7 @@ fn expand(
                     let line_idx = err.start.line.saturating_sub(1) as usize;
                     let start_col = err.start.column.saturating_sub(1) as usize;
                     let end_col = err.end.column.saturating_sub(1) as usize;
-                    let mut msg = format!("Parameter Binding Error: {}", err.message);
+                    let mut msg = err.message.to_string();
                     if let Some(raw_line) = lines.get(line_idx) {
                         let indent_len_bytes = raw_line
                             .char_indices()
