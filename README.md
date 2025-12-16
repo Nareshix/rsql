@@ -8,6 +8,7 @@
 
 # Overview
 
+- [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Connection methods](#connection-methods)
   1. [Inline Schema](#1-inline-schema-standalone)
@@ -27,6 +28,8 @@
   - [False positive during compile time checks](#false-positive-during-compile-time-checks)
   - [Cannot type cast as Boolean](#cannot-type-cast-as-boolean)
 - [TODOS](#todos)
+
+## Installation
 
 ## Quick Start
 
