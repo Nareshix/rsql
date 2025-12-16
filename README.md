@@ -247,50 +247,54 @@ Note: Both `sql!` and `sql_runtime!` accept only a single SQL statement at a tim
      ```
 5. ### Transactions
     ```rust
-    use lazysql::{LazyConnection, lazy_sql};
+        use lazysql::{LazyConnection, lazy_sql};
 
-    #[lazy_sql]
-    struct DB {
-        // We add UNIQUE to trigger a real database error later
-        init: sql!(
-            "CREATE TABLE IF NOT EXISTS users
-                    (id INTEGER PRIMARY KEY NOT NULL,
-                    name TEXT UNIQUE NOT NULL)"
-        ),
+        #[lazy_sql]
+        struct DB {
+            // We add UNIQUE to trigger a real database error later
+            init: sql!(
+                "CREATE TABLE IF NOT EXISTS users
+                        (id INTEGER PRIMARY KEY NOT NULL,
+                        name TEXT UNIQUE NOT NULL)"
+            ),
 
-        add: sql!("INSERT INTO users (name) VALUES (?)"),
+            add: sql!("INSERT INTO users (name) VALUES (?)"),
 
-        count: sql!("SELECT count(*) as n FROM users"),
-    }
+            count: sql!("SELECT count(*) as count FROM users"),
+        }
 
-    fn main() -> Result<(), Box<dyn std::error::Error>> {
-        let conn = LazyConnection::open("test.db")?;
-        let mut db = DB::new(&conn);
-        db.init()?;
+        fn main() -> Result<(), Box<dyn std::error::Error>> {
+            let conn = LazyConnection::open_memory()?;
+            let mut db = DB::new(&conn);
+            db.init()?;
 
-        // Successful Transaction
-        db.transaction(|tx| {
-            tx.add("Alice")?;
-            tx.add("Bob")?;
+            // Successful Transaction (Batch Commit)
+            let results = db.transaction(|tx| {
+                tx.add("Alice")?;
+                tx.add("Bob")?;
 
-            Ok(()) // required at the end of every transaction
-        })?;
+                let count = tx.count()?.all()?; // You must convert the iterator into an owned type
 
-        // Failed Transaction (Automatic Rollback)
-        // We try to add Charlie, then add Alice again.
-        // Since 'Alice' exists, the second command fails, causing the WHOLE block to revert.
-        db.transaction(|tx| {
-            tx.add("Charlie")?; // 1. Writes successfully (pending)
-            tx.add("Alice")?; // 2. Fails (Duplicate) -> Triggers Rollback
+                Ok(count) // if you are not returning anything, u should return it as `Ok(())`
+            })?;
+
+            println!("{:?}", results[0].count); // prints out '2'
+
+            // Failed Transaction (Automatic Rollback)
+            // We try to add Charlie, then add Alice again.
+            // Since 'Alice' exists, the second command fails, causing the WHOLE block to revert.
+            // If you are running this on ur computer, it is expected to see this in the terminal:
+            // "Error: WriteBinding(Step(SqliteFailure { code: 19, error_msg: "UNIQUE constraint failed: users.name" }))"
+            db.transaction(|tx| {
+                tx.add("Charlie")?; // 1. Writes successfully (pending)
+                tx.add("Alice")?; // 2. Fails (Duplicate) -> Triggers Rollback
+                Ok(())
+            })?;
+
+
+
             Ok(())
-        })?;
-
-        // if you are running this code in ur computer, u will notice that the terminal
-        // gives u an WriteBinding ERror saying UNIQUE constaint failed. Which is expected
-        // You would also see a test.db file which contains Alice and Bob But not Charlie.
-        // This means that transaction occurs successfully
-        Ok(())
-    }
+        }
     ```
 
 ## Type Mapping
