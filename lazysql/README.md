@@ -273,7 +273,7 @@ Note: Both `sql!` and `sql_runtime!` accept only a single SQL statement at a tim
                 tx.add("Alice")?;
                 tx.add("Bob")?;
 
-                let count = tx.count()?.all()?; // You must convert the iterator into an owned type
+                let count = tx.count()?.all()?;
 
                 Ok(count) // if you are not returning anything, u should return it as `Ok(())`
             })?;
