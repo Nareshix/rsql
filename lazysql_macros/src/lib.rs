@@ -695,6 +695,31 @@ fn expand(
                     }
                 }
 
+    pub fn transaction<T, F>(&mut self, f: F) -> Result<T, lazysql::errors::Error>
+    where
+        F: FnOnce(&mut Self) -> Result<T, lazysql::errors::Error>,
+    {
+        self.__db.exec("BEGIN")
+            .map_err(lazysql::errors::Error::from)?;
+
+        let result = f(self);
+
+        match result {
+            Ok(val) => {
+                if let Err(e) = self.__db.exec("COMMIT") {
+                    return Err(lazysql::errors::Error::from(e));
+                }
+                Ok(val)
+            }
+            Err(e) => {
+                // Attempt rollback, ignoring failure since we are already erroring
+                let _ = self.__db.exec("ROLLBACK");
+                Err(e)
+            }
+        }
+    }
+
+
                 #(#generated_methods)*
             }
         }
