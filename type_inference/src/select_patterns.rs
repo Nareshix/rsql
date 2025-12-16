@@ -132,13 +132,17 @@ fn process_returning_clause(
             // RETURNING id
             SelectItem::UnnamedExpr(expr) => {
                 let t = evaluate_expr_type(expr, &local_scope_tables, &working_tables)?;
-                let name = match expr {
-                    Expr::Identifier(ident) => normalize_identifier(ident),
-                    Expr::CompoundIdentifier(idents) => {
-                        normalize_identifier(idents.last().unwrap())
+                fn extract_name(expr: &Expr) -> Option<String> {
+                    match expr {
+                        Expr::Identifier(ident) => Some(normalize_identifier(ident)),
+                        Expr::CompoundIdentifier(idents) => idents.last().map(normalize_identifier),
+                        Expr::Cast { expr, .. } => extract_name(expr),
+                        Expr::Nested(inner) => extract_name(inner),
+                        _ => None,
                     }
-                    _ => format!("col_{}", i),
-                };
+                }
+
+                let name = extract_name(expr).unwrap_or_else(|| format!("col_{}", i));
                 output_columns.push(ColumnInfo {
                     name,
                     data_type: t,
@@ -254,13 +258,19 @@ pub fn traverse_select_output(
                     }
                     SelectItem::UnnamedExpr(expr) => {
                         let t = evaluate_expr_type(expr, &local_scope_tables, &working_tables)?;
-                        let name = match expr {
-                            Expr::Identifier(ident) => normalize_identifier(ident),
-                            Expr::CompoundIdentifier(idents) => {
-                                normalize_identifier(idents.last().unwrap())
+                        fn extract_name(expr: &Expr) -> Option<String> {
+                            match expr {
+                                Expr::Identifier(ident) => Some(normalize_identifier(ident)),
+                                Expr::CompoundIdentifier(idents) => {
+                                    idents.last().map(normalize_identifier)
+                                }
+                                Expr::Cast { expr, .. } => extract_name(expr),
+                                Expr::Nested(inner) => extract_name(inner),
+                                _ => None,
                             }
-                            _ => format!("col_{}", i),
-                        };
+                        }
+
+                        let name = extract_name(expr).unwrap_or_else(|| format!("col_{}", i));
                         output_columns.push(ColumnInfo {
                             name,
                             data_type: t,
