@@ -8,8 +8,6 @@
   1. it follows an opinionated API design
   2. Doesn't support BLOBS
   3. Doesn't support Batch Execution.
-  4. No proper support for transactions.
-
 # Overview
 
 - [Installation](#installation)
@@ -25,6 +23,7 @@
      - [INSERT, UPDATE, DELETE etc.](#2-no-return-type)
   3. [postgres `::` syntax](#postgres--type-casting-syntax)
   4. [`all()` and `first()` methods for iterators](#all-and-first-methods-for-iterators)
+  5. [Transactions](#transactions)
 
 - [Type Mapping](#type-mapping)
 - [Notes](#notes)
@@ -246,6 +245,53 @@ Note: Both `sql!` and `sql_runtime!` accept only a single SQL statement at a tim
      let results = db.get_active_users(false)?;
      let first_result = results.first()?.unwrap(); // returns the first row from the returned rows
      ```
+5. ### Transactions
+    ```rust
+    use lazysql::{LazyConnection, lazy_sql};
+
+    #[lazy_sql]
+    struct DB {
+        // We add UNIQUE to trigger a real database error later
+        init: sql!(
+            "CREATE TABLE IF NOT EXISTS users
+                    (id INTEGER PRIMARY KEY NOT NULL,
+                    name TEXT UNIQUE NOT NULL)"
+        ),
+
+        add: sql!("INSERT INTO users (name) VALUES (?)"),
+
+        count: sql!("SELECT count(*) as n FROM users"),
+    }
+
+    fn main() -> Result<(), Box<dyn std::error::Error>> {
+        let conn = LazyConnection::open("test.db")?;
+        let mut db = DB::new(&conn);
+        db.init()?;
+
+        // Successful Transaction
+        db.transaction(|tx| {
+            tx.add("Alice")?;
+            tx.add("Bob")?;
+
+            Ok(()) // required at the end of every transaction
+        })?;
+
+        // Failed Transaction (Automatic Rollback)
+        // We try to add Charlie, then add Alice again.
+        // Since 'Alice' exists, the second command fails, causing the WHOLE block to revert.
+        db.transaction(|tx| {
+            tx.add("Charlie")?; // 1. Writes successfully (pending)
+            tx.add("Alice")?; // 2. Fails (Duplicate) -> Triggers Rollback
+            Ok(())
+        })?;
+
+        // if you are running this code in ur computer, u will notice that the terminal
+        // gives u an WriteBinding ERror saying UNIQUE constaint failed. Which is expected
+        // You would also see a test.db file which contains Alice and Bob But not Charlie.
+        // This means that transaction occurs successfully
+        Ok(())
+    }
+    ```
 
 ## Type Mapping
 
