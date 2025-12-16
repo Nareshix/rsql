@@ -65,6 +65,7 @@ struct AppDatabase {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // or LazyConnection::open("path/to/sql.db") do take note it lazily creates one if doesnt exist
     let conn = LazyConnection::open_memory()?;
 
     // The 'new' constructor is generated automatically
