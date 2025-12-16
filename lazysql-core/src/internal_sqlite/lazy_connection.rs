@@ -74,27 +74,4 @@ impl LazyConnection {
         }
         Ok(())
     }
-
-    pub fn transaction<T, E, F>(&self, f: F) -> Result<T, E>
-    where
-        F: FnOnce() -> Result<T, E>,
-        E: From<SqliteFailure>,
-    {
-        self.exec("BEGIN").map_err(E::from)?;
-
-        let result = f();
-
-        match result {
-            Ok(value) => {
-                if let Err(e) = self.exec("COMMIT") {
-                    return Err(E::from(e));
-                }
-                Ok(value)
-            }
-            Err(e) => {
-                let _ = self.exec("ROLLBACK");
-                Err(e)
-            }
-        }
-    }
 }
