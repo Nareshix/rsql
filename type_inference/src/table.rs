@@ -119,7 +119,13 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
     let ast = Parser::parse_sql(&dialect, sql).unwrap();
 
     for statement in ast {
-        if let Statement::CreateTable(CreateTable { name, columns, .. }) = statement {
+        if let Statement::CreateTable(CreateTable {
+            name,
+            columns,
+            without_rowid,
+            ..
+        }) = statement
+        {
             let table_name = name
                 .0
                 .last()
@@ -134,9 +140,11 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
                     let mut is_detected_boolean = false;
                     let mut is_default = false;
 
-                    // SQLite logic: check if type is INTEGER
-                    let type_str = col.data_type.to_string().to_uppercase();
-                    let is_integer = type_str.contains("INT");
+                    // check if type is strictly INTEGER (not INT)
+                    let is_strictly_integer = col
+                        .data_type
+                        .to_string()
+                        .eq_ignore_ascii_case("INTEGER");
 
                     for option_def in &col.options {
                         match &option_def.option {
@@ -153,15 +161,20 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
                             ColumnOption::Unique {
                                 is_primary: true, ..
                             } => {
-                                // In SQLite, "INTEGER PRIMARY KEY" (with or without Autoincrement)
-                                // automatically defaults to the ROWID, so it has a default.
-                                // if is_integer {
-                                //     is_default = true;
-                                // }
+                                // "INTEGER PRIMARY KEY" is an alias for ROWID (auto-increment)
+                                // UNLESS the table is declared WITHOUT ROWID.
+                                if is_strictly_integer && !without_rowid {
+                                    is_default = true;
+                                }
                             }
                             ColumnOption::Default(_) => is_default = true,
+
+                            // Check for explicit AUTOINCREMENT token
                             ColumnOption::DialectSpecific(tokens) => {
-                                if tokens.iter().any(|t| t.to_string().to_uppercase() == "AUTOINCREMENT") {
+                                if tokens
+                                    .iter()
+                                    .any(|t| t.to_string().to_uppercase() == "AUTOINCREMENT")
+                                {
                                     is_default = true;
                                 }
                             }
@@ -188,7 +201,6 @@ pub fn create_tables(sql: &str, tables: &mut HashMap<String, Vec<ColumnInfo>>) {
         }
     }
 }
-
 #[allow(unused)]
 pub fn get_table_names(sql: &str) -> Vec<String> {
     let statements = Parser::parse_sql(&SQLiteDialect {}, sql).unwrap();
