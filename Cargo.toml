@@ -14,6 +14,7 @@ package.license = "MIT"
 
 
 [workspace.dependencies]
+lazysql ={ path = "./lazysql", version = "0.1.2"}
 lazysql-core = { path = "./lazysql-core", version = "0.1.2" }
 lazysql_macros = { path = "./lazysql_macros", version = "0.1.2" }
 type_inference = { path = "./type_inference", version = "0.1.2" }
