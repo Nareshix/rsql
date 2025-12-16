@@ -1,7 +1,7 @@
 ## Quick Start
 
 ```rust
-use lazysql::{lazy_sql, LazyConnection};
+use lazysql::{LazyConnection, lazy_sql};
 
 #[lazy_sql]
 struct AppDatabase {
@@ -16,9 +16,10 @@ struct AppDatabase {
         )
     "),
 
-    add_user: sql!("INSERT INTO users (username, is_active) VALUES (?, ?)"),
+    // postgres `::` type casting is supported. Alternatively u can use CAST AS syntax
+    add_user: sql!("INSERT INTO users (id, username, is_active) VALUES (?::real, ?, ?)"),
 
-    get_active_users: sql!("SELECT id as user_id, username FROM users WHERE is_active = ?"),
+    get_active_users: sql!("SELECT id::real, username, is_active as active FROM users WHERE is_active = ?"),
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -31,16 +32,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     db.init()?;
 
     // Types are enforced by Rust
-    db.add_user("Alice", true)?;
-    db.add_user("Bob", false)?;
+    // Respects type inference. i64 -> f64 for id (first argument)
+    db.add_user(0.0, "Alice", true)?;
+    db.add_user(1.0, "Bob", false)?;
 
     // active_users is an iterator
     let active_users = db.get_active_users(true)?;
 
     for user in active_users {
         // u can access the fields specifically if you want
-        // Respects Aliases (id -> user_id)
-        println!("{} {}", user.username, user.user_id);
+        // Respects Aliases (is_active -> active)
+        let user = user?;
+        println!("{} {}, {}", user.active, user.username, user.id); // note user.id is float as we type casted it in the sql stmt
     }
 
     Ok(())
@@ -68,7 +71,7 @@ struct App { ... }
 
 ### 2. SQL File
 
-Point to a `.sql` file. The compile time checks will be done against this sql file (ensure that there is `CREATE TABLE`) `lazysql` watches this file; if you edit it, your Rust project recompiles automatically to ensure type safety.
+Point to a `.sql` file. The compile time checks will be done against this sql file (ensure that there is `CREATE TABLE`) `lazysql` watches this file; if you edit it, rust recompiles automatically to ensure type safety.
 
 ```rust
 #[lazy_sql("schema.sql")]
@@ -153,17 +156,35 @@ struct Logger {
 // can continue to use it normally.
 ```
 
-### Postgres Compatibility
+## Other features
 
-You can use Postgres-style casting syntax. `lazysql` transpiles it to SQLite syntax at compile time.
+1. supports postgres `::` type casting syntax. Note for now bool aint spported TODO
 
-```rust
-// You write:
-sql!("SELECT price::text FROM items")
+   ```rust
+   sql!("SELECT price::text FROM items")
 
-// Compiles to:
-// "SELECT CAST(price AS TEXT) FROM items"
-```
+   // Compiles to:
+   // "SELECT CAST(price AS TEXT) FROM items"
+   ```
+
+2. iterators has 2 additional methods. `all()` and `first()`
+
+   - `all()` collects the iterator into a vector. Just a lightweight wrapper around .collect() to prevent adding type hints (Vec<\_>) in code
+
+   - `first()` Returns the first row if available, or None if the query returned no results.
+
+   e.g.
+
+   ```rust
+   let results = db.get_active_users(false)?;
+   let first_result = results.first()?.unwrap(); // returns first column from the returned rows
+   ```
+
+   and
+
+   ```rust
+   let results = db.get_active_users(false)?;       let collected_results =results.all()?; // returns a vec of owned  results from the returned rows
+   ```
 
 ### Type Mapping
 
@@ -184,3 +205,4 @@ sql!("SELECT price::text FROM items")
 3. check_constarint in SELECT is ignored for now. aybe in future will add
 4. in case cant infer type do type casting with pg syntax or normal sqlite. but take note ::bool dont work or CAST AS bool also
 5. first() and all() from iterator
+6. cant cast as bool
