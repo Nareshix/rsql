@@ -9,6 +9,16 @@ pub mod expr;
 pub mod select_patterns;
 pub mod table;
 
+pub fn validate_single_statement(sql: &str) -> bool {
+    let dialect = SQLiteDialect {};
+    if let Ok(ast) = Parser::parse_sql(&dialect, sql)
+        && ast.len() > 1
+    {
+        return false;
+    }
+    true
+}
+
 pub fn validate_insert_strict(
     sql: &str,
     tables: &HashMap<String, Vec<ColumnInfo>>,

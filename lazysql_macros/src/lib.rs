@@ -11,6 +11,7 @@ use syn::{
 use type_inference::{
     binding_patterns::get_type_of_binding_parameters, expr::BaseType, pg_cast_syntax_to_sqlite,
     select_patterns::get_types_from_select, table::create_tables, validate_insert_strict,
+    validate_single_statement,
 };
 
 /// This nicely formats the sql string.
@@ -173,6 +174,14 @@ fn expand(
         // Check if type is sql!("...")
         if let Some(sql_lit) = parse_sql_macro_type(&field.ty)? {
             let sql_query = pg_cast_syntax_to_sqlite(&sql_lit.value());
+
+            if !validate_single_statement(&sql_query) {
+                return Err(syn::Error::new(
+                    sql_lit.span(),
+                    "Multiple SQL statements detected. \
+                     Please split them into separate struct fields.",
+                ));
+            }
 
             let transpiled_sql_lit = syn::LitStr::new(&sql_query, sql_lit.span());
 
