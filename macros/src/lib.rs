@@ -174,6 +174,8 @@ fn expand(
         if let Some(sql_lit) = parse_sql_macro_type(&field.ty)? {
             let sql_query = pg_cast_syntax_to_sqlite(&sql_lit.value());
 
+            let transpiled_sql_lit = syn::LitStr::new(&sql_query, sql_lit.span());
+
             if let Err(err_msg) = validate_sql_syntax_with_sqlite(&all_tables, &sql_query) {
                 return Err(syn::Error::new(sql_lit.span(), err_msg.to_string()));
             }
@@ -188,7 +190,7 @@ fn expand(
                 field.ty = parse_quote!(lazysql::internal_sqlite::lazy_statement::LazyStmt);
                 sql_assignments.push(quote! {
                     #ident: lazysql::internal_sqlite::lazy_statement::LazyStmt {
-                        sql_query: #sql_lit,
+                        sql_query: #transpiled_sql_lit,
                         stmt: std::ptr::null_mut(),
                     }
                 });
@@ -279,7 +281,7 @@ fn expand(
 
             sql_assignments.push(quote! {
                 #ident: lazysql::internal_sqlite::lazy_statement::LazyStmt {
-                    sql_query: #sql_lit,
+                    sql_query: #transpiled_sql_lit,
                     stmt: std::ptr::null_mut(),
                 }
             });
@@ -531,12 +533,15 @@ fn expand(
             }
         } else if let Some(runtime_input) = parse_runtime_macro(&field.ty)? {
             let sql_lit = runtime_input.sql;
+            let sql_query = pg_cast_syntax_to_sqlite(&sql_lit.value());
+
+            let transpiled_sql_lit = syn::LitStr::new(&sql_query, sql_lit.span());
 
             field.ty = parse_quote!(lazysql::internal_sqlite::lazy_statement::LazyStmt);
 
             sql_assignments.push(quote! {
                 #ident: lazysql::internal_sqlite::lazy_statement::LazyStmt {
-                    sql_query: #sql_lit,
+                    sql_query: #transpiled_sql_lit,
                     stmt: std::ptr::null_mut(),
                 }
             });
