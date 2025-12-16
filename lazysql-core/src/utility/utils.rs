@@ -278,7 +278,7 @@ pub fn validate_sql_syntax_with_sqlite(
             Ok(())
         } else {
             let (_, msg) = get_sqlite_failiure(handle.db);
-            Err(format!("Validation Error: {}", msg))
+            Err(format!("Error: {}", msg))
         }
     }
 }
