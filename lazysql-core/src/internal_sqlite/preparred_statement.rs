@@ -20,7 +20,7 @@ impl Drop for PreparredStmt {
     fn drop(&mut self) {
         unsafe {
             sqlite3_reset(self.stmt);
-            sqlite3_clear_bindings(self.stmt); //
+            sqlite3_clear_bindings(self.stmt);
         }
     }
 }
