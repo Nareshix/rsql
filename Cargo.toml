@@ -8,12 +8,12 @@ members = [
     "tests"
 ]
 
-package.version = "0.1.1"
+package.version = "0.1.2"
 package.edition = "2024"
 package.license = "MIT"
 
 
 [workspace.dependencies]
-lazysql-core = { path = "./lazysql-core", version = "0.1.1" }
-lazysql_macros = { path = "./lazysql_macros", version = "0.1.1" }
-type_inference = { path = "./type_inference", version = "0.1.1" }
+lazysql-core = { path = "./lazysql-core", version = "0.1.2" }
+lazysql_macros = { path = "./lazysql_macros", version = "0.1.2" }
+type_inference = { path = "./type_inference", version = "0.1.2" }
