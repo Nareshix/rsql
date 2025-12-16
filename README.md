@@ -279,55 +279,57 @@ Note: Both `sql!` and `sql_runtime!` accept only a single SQL statement at a tim
 5. BLOBS
 6. bulk insert
 7. begin immediate
-8. transactions. Techincally can but its hella unergonomic and unsafe.
+8. transactions. Technically can but its hella unergonomic and unsafe.
 
-```rust
-use lazysql::{LazyConnection, lazy_sql};
+    For instance,
 
-#[lazy_sql]
-struct Foo {
-    init: sql!("CREATE TABLE IF NOT EXISTS users (id INT NOT NULL, name TEXT NOT NULL)"),
-    create_user: sql!("INSERT INTO users (id, name) VALUES (?, ?)"),
-    get_user: sql!("SELECT * FROM users WHERE id = ?"),
-    begin: sql!("BEGIN"),
-    commit: sql!("COMMIT"),
-    rollback: sql!("ROLLBACK"),
-}
+    ```rust
+    use lazysql::{LazyConnection, lazy_sql};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let conn = LazyConnection::open_memory()?;
-    let mut db = Foo::new(&conn);
-
-    db.init()?;
-    db.begin()?;
-
-    let result = (|| -> Result<Option<_>, Box<dyn std::error::Error>> {
-
-        db.create_user(1, "Sam")?;
-
-        let user = db.get_user(1)?.first()?;
-
-        Ok(user)
-    })();
-
-    match result {
-        Ok(maybe_user) => {
-            db.commit()?;
-
-            if let Some(u) = maybe_user {
-                println!("{}, {}", u.id, u.name);
-            } else {
-                println!("Transaction committed, but no user found.");
-            }
-        }
-        Err(e) => {
-            // Transaction failed -> Rollback
-            let _ = db.rollback();
-            eprintln!("Error during transaction: {}", e);
-            return Err(e);
-        }
+    #[lazy_sql]
+    struct Foo {
+        init: sql!("CREATE TABLE IF NOT EXISTS users (id INT NOT NULL, name TEXT NOT NULL)"),
+        create_user: sql!("INSERT INTO users (id, name) VALUES (?, ?)"),
+        get_user: sql!("SELECT * FROM users WHERE id = ?"),
+        begin: sql!("BEGIN"),
+        commit: sql!("COMMIT"),
+        rollback: sql!("ROLLBACK"),
     }
 
-    Ok(())
-}
-```
+    fn main() -> Result<(), Box<dyn std::error::Error>> {
+        let conn = LazyConnection::open_memory()?;
+        let mut db = Foo::new(&conn);
+
+        db.init()?;
+        db.begin()?;
+
+        let result = (|| -> Result<Option<_>, Box<dyn std::error::Error>> {
+
+            db.create_user(1, "Sam")?;
+
+            let user = db.get_user(1)?.first()?;
+
+            Ok(user)
+        })();
+
+        match result {
+            Ok(maybe_user) => {
+                db.commit()?;
+
+                if let Some(u) = maybe_user {
+                    println!("{}, {}", u.id, u.name);
+                } else {
+                    println!("Transaction committed, but no user found.");
+                }
+            }
+            Err(e) => {
+                // Transaction failed -> Rollback
+                let _ = db.rollback();
+                eprintln!("Error during transaction: {}", e);
+                return Err(e);
+            }
+        }
+
+        Ok(())
+    }
+    ```
