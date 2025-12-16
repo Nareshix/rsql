@@ -2,8 +2,13 @@
 name = "lazysql"
 version = "0.1.0"
 edition = "2024"
-description = "ergonomic sqlite library with compile time guarantees"
+description = "An ergonomic sqlite library with compile time guarantees"
+readme = "../README.md"
+homepage = "https://github.com/Nareshix/LazySql"
+repository = "https://github.com/Nareshix/LazySql"
 license = "MIT"
+keywords = ["database", "sqlite", "sql", "ergonomic", "compile time check"]
+categories = ["database", "database-implementations", "embedded", "rust-patterns"]
 
 
 [dependencies]
