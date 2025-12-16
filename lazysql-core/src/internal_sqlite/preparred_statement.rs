@@ -1,5 +1,5 @@
 use libsqlite3_sys::{
-    SQLITE_BUSY, SQLITE_CONSTRAINT_CHECK, SQLITE_CONSTRAINT_FOREIGNKEY, SQLITE_CONSTRAINT_UNIQUE, SQLITE_DONE, SQLITE_OK, SQLITE_ROW, sqlite3, sqlite3_clear_bindings, sqlite3_reset, sqlite3_step, sqlite3_stmt
+    SQLITE_BUSY, SQLITE_CONSTRAINT_CHECK, SQLITE_CONSTRAINT_FOREIGNKEY, SQLITE_CONSTRAINT_UNIQUE, SQLITE_DONE, SQLITE_OK, SQLITE_ROW, sqlite3, sqlite3_reset, sqlite3_step, sqlite3_stmt
 };
 
 use crate::{
