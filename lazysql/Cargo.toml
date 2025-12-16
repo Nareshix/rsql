@@ -1,6 +1,6 @@
 [package]
 name = "lazysql"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "An ergonomic sqlite library with compile time guarantees"
 readme = "../README.md"
