@@ -26,7 +26,7 @@ pub struct Type {
     pub contains_placeholder: bool,
 }
 
-/// https://docs.rs/sqlparser/latest/sqlparser/ast/enum.Expr.html, version 0.59.0
+/// <https://docs.rs/sqlparser/latest/sqlparser/ast/enum.Expr.html>, version 0.59.0
 pub fn evaluate_expr_type(
     expr: &Expr,
     table_names_from_select: &Vec<String>,
