@@ -8,9 +8,10 @@ members = [
     "tests"
 ]
 
-package.version = "0.1.2"
-package.edition = "2024"
-package.license = "MIT"
+[workspace.package]
+version = "0.1.2"
+edition = "2024"
+license = "MIT"
 
 
 [workspace.dependencies]
