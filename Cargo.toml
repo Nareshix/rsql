@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "lazysql",
-    "macros",
+    "lazysql_macros",
     "tests",
     "lazysql-core",
     "type_inference"
