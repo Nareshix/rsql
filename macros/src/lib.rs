@@ -402,7 +402,7 @@ fn expand(
                 }
 
                 generated_structs.push(quote! {
-                    #[derive(Debug, lazysql::SqlMapping)]
+                    #[derive(Clone, Debug, lazysql::SqlMapping)]
                     pub struct #struct_name {
                         #(#struct_fields),*
                     }
@@ -470,7 +470,7 @@ fn expand(
                 }
 
                 generated_structs.push(quote! {
-                    #[derive(Debug, lazysql::SqlMapping)]
+                    #[derive(Clone, Debug, lazysql::SqlMapping)]
                     pub struct #output_struct_name {
                         #(#struct_fields),*
                     }
@@ -741,7 +741,7 @@ pub fn my_macro(input: TokenStream) -> TokenStream {
 
     let field_names = fields.iter().map(|f| f.ident.as_ref().unwrap());
     let expanded = quote! {
-        #[derive(Clone, Copy, Debug)]
+        #[derive(Clone, Debug)]
         pub struct #mapper_struct_name;
 
         impl lazysql::traits::row_mapper::RowMapper for #mapper_struct_name {
