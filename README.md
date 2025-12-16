@@ -60,7 +60,7 @@ has some nice QOL features like hover over to see sql code and good ide support
 ![usage](./amedia_for_readme/usage.gif)
 
 ---
-- The type inference system and compile time check also works well for `joins`, `ctes`, `window function`, `recursive ctes`, `RETURNING` and more complex scenarios.
+- The type inference system and compile time check also works well for `joins`, `ctes`, `window function`, `datetime functions` `recursive ctes`, `RETURNING` and more complex scenarios.
 
 - Since SQLite defaults to nullable columns, the type inference system defaults to Option<T>. To use concrete types (e.g., String instead of Option<String>), explicitly add NOT NULL to your table definitions
 
@@ -201,7 +201,8 @@ struct Logger {
    and
 
    ```rust
-   let results = db.get_active_users(false)?;       let collected_results =results.all()?; // returns a vec of owned  results from the returned rows
+   let results = db.get_active_users(false)?;
+   let collected_results =results.all()?; // returns a vec of owned  results from the returned rows
    ```
 
 ### Type Mapping
@@ -219,11 +220,11 @@ struct Logger {
 
 ### Strict INSERT Validation
 
-Although standard SQL allows inserting any number of columns to a table, lazysql checks INSERT statements at compile time. If you omit any column (except for `AUTOINCREMENT` and `DEFAULT`) code will fail to compile. This means you must either specify all columns explicitly, or use implicit insertion for all columns. This is done to prevent certain runtime errors such as `NOT NULL constraint failed` and more.
+- Although standard SQL allows inserting any number of columns to a table, lazysql checks INSERT statements at compile time. If you omit any column (except for `AUTOINCREMENT` and `DEFAULT`) code will fail to compile. This means you must either specify all columns explicitly, or use implicit insertion for all columns. This is done to prevent certain runtime errors such as `NOT NULL constraint failed` and more.
 
 
 ### False positive during compile time checks
-I tried my best to support as many sql and sqlite-specific queries as possible. But in the extrememly rare case of false positive (is meant to )
+- I tried my best to support as many sql and sqlite-specific queries as possible. In the extremely rare case of a false positive (valid SQL syntax **fails** or type inference **incorrectly fails**), you can fall back to the `sql_runtime!` macro. Would appreciate it if u could open an issue as well.
 
 ## TODOS
 1. upsert
