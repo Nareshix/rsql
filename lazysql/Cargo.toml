@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-lazysql-core = { path = "../lazysql-core" }
-lazysql_macros = { path = "../lazysql_macros" }
+lazysql-core = { path = "../lazysql-core", version = "0.1.0" }
+lazysql_macros = { path = "../lazysql_macros", version = "0.1.0"}
