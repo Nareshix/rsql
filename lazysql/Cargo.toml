@@ -13,4 +13,4 @@ categories = ["database", "database-implementations", "embedded", "rust-patterns
 
 [dependencies]
 lazysql-core = { version = "0.1.1", path = "../lazysql-core" }
-lazysql_macros = { path = "../lazysql_macros", version = "0.1.0"}
+lazysql_macros = { version = "0.1.1", path = "../lazysql_macros" }
