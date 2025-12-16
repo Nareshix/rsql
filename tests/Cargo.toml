@@ -2,6 +2,7 @@
 name = "tests"
 version.workspace = true
 edition.workspace = true
+publish = false
 
 [dependencies]
 lazysql.workspace = true
