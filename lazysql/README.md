@@ -4,7 +4,11 @@
 - Has compile time guarantees
 - Ergonomic
 - Fast. Automatically caches and reuses preparred statements for you
-- However, it follows an opinionated API design and doesnt support BLOBS for now
+- Some downsides that may or may not get fixed in future
+  1. it follows an opinionated API design
+  2. Doesn't support BLOBS
+  3. Doesn't support Batch Execution.
+  4. No proper support for transactions.
 
 # Overview
 
@@ -100,7 +104,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ![usage](https://github.com/Nareshix/LazySql/raw/main/amedia_for_readme/usage.gif)
 
 
-- The type inference system and compile time check also works well for `JOIN`, `CASE` `ctes`, `window function`, `datetime functions` `recursive ctes`, `RETURNING` and more complex scenarios.
+- The type inference system and compile time check also works well for `JOIN`, `CASE` `ctes`, `window function`, `datetime functions` `recursive ctes`, `RETURNING` and more complex scenarios. You can even run `PRAGMA` statements with it.
 
 - Since SQLite defaults to nullable columns, the type inference system defaults to Option<T>. To use concrete types (e.g., String instead of Option<String>), explicitly add NOT NULL to your table definitions
 
@@ -268,9 +272,60 @@ the `lazy_sql!` macro brings along `sql!` and `sql_runtime!` macro. so there is 
 ## TODOS
 
 1. [upsert](https://www.cockroachlabs.com/blog/sql-upsert/)
-2. transactions
 3. check_constarint field in SELECT is ignored for now. maybe in future will make use of this field
 4. cant cast as bool
 5. BLOBS
 6. bulk insert
 7. begin immediate
+8. transactions. Techincally can but its hella unergonomic and unsafe.
+
+```rust
+use lazysql::{LazyConnection, lazy_sql};
+
+#[lazy_sql]
+struct Foo {
+    init: sql!("CREATE TABLE IF NOT EXISTS users (id INT NOT NULL, name TEXT NOT NULL)"),
+    create_user: sql!("INSERT INTO users (id, name) VALUES (?, ?)"),
+    get_user: sql!("SELECT * FROM users WHERE id = ?"),
+    begin: sql!("BEGIN"),
+    commit: sql!("COMMIT"),
+    rollback: sql!("ROLLBACK"),
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let conn = LazyConnection::open_memory()?;
+    let mut db = Foo::new(&conn);
+
+    db.init()?;
+    db.begin()?;
+
+    let result = (|| -> Result<Option<_>, Box<dyn std::error::Error>> {
+
+        db.create_user(1, "Sam")?;
+
+        let user = db.get_user(1)?.first()?;
+
+        Ok(user)
+    })();
+
+    match result {
+        Ok(maybe_user) => {
+            db.commit()?;
+
+            if let Some(u) = maybe_user {
+                println!("{}, {}", u.id, u.name);
+            } else {
+                println!("Transaction committed, but no user found.");
+            }
+        }
+        Err(e) => {
+            // Transaction failed -> Rollback
+            let _ = db.rollback();
+            eprintln!("Error during transaction: {}", e);
+            return Err(e);
+        }
+    }
+
+    Ok(())
+}
+```
