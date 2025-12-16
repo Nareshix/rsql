@@ -60,6 +60,7 @@ has some nice QOL features like hover over to see sql code and good ide support
 ![usage](./amedia_for_readme/usage.gif)
 
 ---
+The type inference system and compile time check also works well for `joins`, `ctes`, `window function`, `recursive ctes`, `RETURNING` and more complex scenarios.
 
 Since SQLite defaults to nullable columns, the type inference system defaults to Option<T>. To use concrete types (e.g., String instead of Option<String>), explicitly add NOT NULL to your table definitions
 
@@ -71,8 +72,6 @@ There will be rare scenarios when a type is impossible to infer (e.g. `SELECT ?`
 For instance
 ![Alt Text](./amedia_for_readme/error_1.png)
 ![Alt Text](./amedia_for_readme/error_2.png)
-
-The type inference system and compile time check also works well for `joins`, `ctes`, `window function`, `recursive ctes`, `RETURNING` and more complex scenarios.
 
 ## Configuration Methods
 
