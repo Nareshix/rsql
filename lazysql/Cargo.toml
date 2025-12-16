@@ -2,6 +2,9 @@
 name = "lazysql"
 version = "0.1.0"
 edition = "2024"
+description = "ergonomic sqlite library with compile time guarantees"
+license = "MIT"
+
 
 [dependencies]
 lazysql-core = { path = "../lazysql-core", version = "0.1.0" }
