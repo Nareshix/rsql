@@ -4,7 +4,7 @@
 - Has compile time guarantees
 - Ergonomic
 - Fast. Automatically caches and reuses preparred statements for you
-- However, it follows an opinionated API design
+- However, it follows an opinionated API design and doesnt support BLOBS for now
 
 # Overview
 
@@ -271,3 +271,5 @@ the `lazy_sql!` macro brings along `sql!` and `sql_runtime!` macro. so there is 
 2. transactions
 3. check_constarint field in SELECT is ignored for now. maybe in future will make use of this field
 4. cant cast as bool
+5. BLOBS
+6. bulk insert
