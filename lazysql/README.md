@@ -100,7 +100,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ![usage](https://github.com/Nareshix/LazySql/raw/main/amedia_for_readme/usage.gif)
 
 
-- The type inference system and compile time check also works well for `joins`, `ctes`, `window function`, `datetime functions` `recursive ctes`, `RETURNING` and more complex scenarios.
+- The type inference system and compile time check also works well for `JOIN`, `CASE` `ctes`, `window function`, `datetime functions` `recursive ctes`, `RETURNING` and more complex scenarios.
 
 - Since SQLite defaults to nullable columns, the type inference system defaults to Option<T>. To use concrete types (e.g., String instead of Option<String>), explicitly add NOT NULL to your table definitions
 
@@ -273,3 +273,4 @@ the `lazy_sql!` macro brings along `sql!` and `sql_runtime!` macro. so there is 
 4. cant cast as bool
 5. BLOBS
 6. bulk insert
+7. begin immediate
