@@ -85,7 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 has some nice QOL features like hover over to see sql code and good ide support
 
-![usage](./amedia_for_readme/usage.gif)
+![usage](/amedia_for_readme/usage.gif)
 
 ---
 
@@ -99,8 +99,8 @@ has some nice QOL features like hover over to see sql code and good ide support
 
   For instance,
 
-  ![Alt Text](./amedia_for_readme/error_1.png)
-  ![Alt Text](./amedia_for_readme/error_2.png)
+  ![Alt Text](/amedia_for_readme/error_1.png)
+  ![Alt Text](/amedia_for_readme/error_2.png)
 
 ## Connection methods
 
