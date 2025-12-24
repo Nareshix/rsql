@@ -9,7 +9,7 @@ use std::{
 };
 
 use crate::{
-    errors::connection::SqlitePrepareErrors,
+    errors::{Error, connection::SqlitePrepareErrors},
     utility::utils::{close_db, get_sqlite_failiure},
 };
 use crate::{
@@ -124,6 +124,28 @@ impl LazyConnection {
             } else {
                 let (code, error_msg) = get_sqlite_failiure(self.db);
                 Err(SqliteFailure { code, error_msg })
+            }
+        }
+    }
+
+    pub fn transaction<T, F>(&self, f: F) -> Result<T, Error>
+    where
+        F: FnOnce(&Self) -> Result<T, Error>,
+    {
+        self.exec("BEGIN").map_err(Error::from)?;
+
+        let result = f(self);
+
+        match result {
+            Ok(val) => {
+                if let Err(e) = self.exec("COMMIT") {
+                    return Err(Error::from(e));
+                }
+                Ok(val)
+            }
+            Err(e) => {
+                let _ = self.exec("ROLLBACK");
+                Err(e)
             }
         }
     }
