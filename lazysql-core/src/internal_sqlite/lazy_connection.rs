@@ -1,14 +1,21 @@
 use libsqlite3_sys::{
     self as ffi, SQLITE_OK, SQLITE_OPEN_CREATE, SQLITE_OPEN_MEMORY, SQLITE_OPEN_READWRITE, sqlite3,
-    sqlite3_busy_timeout, sqlite3_exec,
+    sqlite3_busy_timeout, sqlite3_column_count, sqlite3_column_name, sqlite3_exec,
 };
 use std::{
-    ffi::{CString, c_int},
+    ffi::{CStr, CString, c_int},
     ptr,
 };
 
-use crate::errors::{SqliteFailure, connection::SqliteOpenErrors}; // <--- Ensure SqliteFailure is imported
-use crate::utility::utils::{close_db, get_sqlite_failiure};
+use crate::{
+    errors::connection::SqlitePrepareErrors,
+    utility::utils::{close_db, get_sqlite_failiure},
+};
+use crate::{
+    errors::{SqliteFailure, connection::SqliteOpenErrors},
+    internal_sqlite::dynamic_rows::DynamicRows,
+    utility::utils::prepare_stmt,
+};
 
 pub struct LazyConnection {
     pub db: *mut sqlite3,
@@ -73,5 +80,26 @@ impl LazyConnection {
             return Err(SqliteFailure { code, error_msg });
         }
         Ok(())
+    }
+
+    pub fn dynamic_query(&self, sql: &str) -> Result<DynamicRows, SqliteFailure> {
+        let mut stmt = std::ptr::null_mut();
+        unsafe {
+            prepare_stmt(self.db, &mut stmt, sql).map_err(|e| match e {
+                SqlitePrepareErrors::SqliteFailure { code, error_msg } => {
+                    SqliteFailure { code, error_msg }
+                }
+            })?;
+
+            let count = sqlite3_column_count(stmt);
+            let mut column_names = Vec::with_capacity(count as usize);
+            for i in 0..count {
+                let ptr = sqlite3_column_name(stmt, i);
+                let name = CStr::from_ptr(ptr).to_string_lossy().into_owned();
+                column_names.push(name);
+            }
+
+            Ok(DynamicRows { stmt, column_names })
+        }
     }
 }
