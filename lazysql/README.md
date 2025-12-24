@@ -27,11 +27,15 @@
   4. [`all()` and `first()` methods for iterators](#all-and-first-methods-for-iterators)
   5. [Transactions](#transactions)
 
+- [Dynamic runtime features](#dynamic-runtime-features)
+  1. [How is this different from  `sql_runtime!`](#how-is-this-different-from-sql_runtime)
+  2. [Runtime Features](#runtime-features)
+  3. [Transactions at Runtime](#transactions-at-runtime)
 - [Type Mapping](#type-mapping)
 - [Notes](#notes)
-  - [Strict INSERT Validation](#strict-insert-validation)
-  - [False positives during compile time checks](#false-positive-during-compile-time-checks)
-  - [Cannot type cast as Boolean](#cannot-type-cast-as-boolean)
+  1. [Strict INSERT Validation](#strict-insert-validation)
+  2. [False positives during compile time checks](#false-positive-during-compile-time-checks)
+  3. [Cannot type cast as Boolean](#cannot-type-cast-as-boolean)
 - [TODOS](#todos)
 
 ## Installation
@@ -172,7 +176,9 @@ Note: Both `sql!` and `sql_runtime!` accept only a single SQL statement at a tim
 
 2. ### `sql_runtime!` Macro
 
-   Use this only when you need the sql to to be executed at runtime with some compile time guarantees. **Rarely needed in practice**. You would know when you need it.
+   - Use this only when you need the sql to to be executed at runtime with some compile time guarantees. **Rarely needed in practice**. You would know when you need it.
+
+   - Originally, `sql_runtime!` is intended more of an escape hatch when you cant use the `sql!` macro due to  false positives. False positives are **extremely extremely rare**. Look below for more info. This is why u still have to define structs for SELECT statements and specify types for binding parameters for non-SELECT statements
 
    #### a. `SELECT`
 
@@ -316,11 +322,13 @@ Note: Both `sql!` and `sql_runtime!` accept only a single SQL statement at a tim
 | Nullable       | `Option<T>`       | When a column or expr has a possibility of returning `NULL`, this will be returned. its recommended to use `NOT NULL` when creating tables so that ergonomic-wise you don't always have to use Some(T) when adding parameters               |
 
 ## Dynamic runtime features
+- **Strongly** recommended to use the `sql!` macro for most use-cases. Dynamic runtime features are only needed in **rare** scenarios.
 
 ### How is this different from  `sql_runtime!`
 
 - `sql_runtime!` is intended more of an escape hatch when you cant use the `sql!` macro due to  false positives. False positives are **extremely extremely rare**. Look below for more info. This is why u still have to define structs for SELECT statements and specify types for binding parameters for non-SELECT statements
 
+### Runtime Features
 - Dynamic runtime features happens fully at runtime. All the features are stated below in this code block.
 
     ```rust
@@ -356,7 +364,7 @@ Note: Both `sql!` and `sql_runtime!` accept only a single SQL statement at a tim
         for row_result in results {
             let row = row_result?;
             for value in row {
-                print!("{:?} ", value);
+                print!("{:?} ", value); // or u could do value.as_string(), value.as_f64(), value.as_i64(), etc. to convert the enum to specific type
             }
         }
 
@@ -369,6 +377,56 @@ Note: Both `sql!` and `sql_runtime!` accept only a single SQL statement at a tim
     }
 
     ```
+
+### Transactions at Runtime
+
+```rust
+use lazysql::LazyConnection;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let conn = LazyConnection::open_memory()?;
+
+    conn.execute_dynamic("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT UNIQUE)")?;
+
+    // Successful Transaction
+    let user_count = conn.transaction(|tx| {
+        tx.execute_dynamic("INSERT INTO users (name) VALUES ('Alice')")?;
+        tx.execute_dynamic("INSERT INTO users (name) VALUES ('Bob')")?;
+
+        let row = tx
+            .query_dynamic("SELECT COUNT(*) FROM users")?
+            .first()?
+            .unwrap();
+        Ok(row[0].as_i32()) // Return the count
+    })?;
+
+    println!("{}", user_count); // Prints 2
+
+    // 3. Failed Transaction (Automatic Rollback)
+    // We try to add Charlie, then Alice again (who already exists).
+    let result = conn.transaction(|tx| {
+        tx.execute_dynamic("INSERT INTO users (name) VALUES ('Charlie')")?; // Succeeds
+        tx.execute_dynamic("INSERT INTO users (name) VALUES ('Alice')")?; // Fails (UNIQUE constraint)
+        Ok(())
+    });
+
+    if let Err(e) = result {
+        println!("{}", e);
+    }
+
+    // Charlie should NOT exist in the DB because the transaction reverted.
+    let final_count = conn
+        .query_dynamic("SELECT COUNT(*) FROM users")?
+        .first()?
+        .unwrap()[0]
+        .as_i32();
+
+    println!("Charlie not added. Total count: {}", final_count); // prints 2 since Charlie was not added.
+
+    Ok(())
+}
+
+```
 
 ## Notes
 
