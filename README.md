@@ -117,7 +117,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 - Since SQLite defaults to nullable columns, the type inference system defaults to Option<T>. To use concrete types (e.g., String instead of Option<String>), explicitly add **NOT NULL** to your table columns
 
-- It is strongly recommended to use [STRICT tables](https://sqlite.org/stricttables.html) for better compile time guarantees. Recommended to use [WITHOUT ROWID](https://www.sqlite.org/withoutrowid.html).
+- You cannot name a field called `transaction` in the struct since its a reserved method name for transactions. Failiure to do so will result in a compile time error.
 
 - There will be rare scenarios when a type is impossible to infer. `LazySql` will tell you specifically which binding parameter or expression cannot be inferred and will suggest using type casting via PostgreSQL's `::` operator or standard SQL's `CAST AS`. Note that you can't type cast as `boolean` for now.
 
@@ -259,6 +259,7 @@ Note: Both `sql!` and `sql_runtime!` accept only a single SQL statement at a tim
      ```
 
 5. ### Transactions
+- Note: you cannot name a field called `transaction` in the struct since its a reserved method name. Failiure to do so will result in a compile time error.
 
    ```rust
        use lazysql::{LazyConnection, lazy_sql};
