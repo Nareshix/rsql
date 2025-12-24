@@ -8,6 +8,7 @@
   1. it follows an opinionated API design
   2. Doesn't support BLOBS
   3. Doesn't support Batch Execution.
+
 # Overview
 
 - [Installation](#installation)
@@ -17,6 +18,7 @@
   2. [SQL File](#2-sql-file)
   3. [Live Database](#3-live-database)
 - [Features](#features)
+
   1. [`sql!` Macro](#sql-macro)
   2. [`sql_runtime!` Macro](#sql_runtime-macro)
      - [SELECT](#1-select)
@@ -33,16 +35,21 @@
 - [TODOS](#todos)
 
 ## Installation
+
 Run the following Cargo command in your project directory:
+
 ```bash
 cargo add lazysql
 ```
+
 OR
 
- Go to [LazySql's crates.io](https://crates.io/crates/lazysql) to get the latest version. Add  that to following line to your Cargo.toml:
+Go to [LazySql's crates.io](https://crates.io/crates/lazysql) to get the latest version. Add that to following line to your Cargo.toml:
+
 ```toml
 lazysql = "*" # Replace the "*" with the latest version
 ```
+
 ## Quick Start
 
 ```rust
@@ -100,8 +107,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 - `LazySql` has some nice QOL features like hover over to see sql code and good ide support
 
-    ![usage](https://github.com/Nareshix/LazySql/raw/main/amedia_for_readme/usage.gif)
-
+  ![usage](https://github.com/Nareshix/LazySql/raw/main/amedia_for_readme/usage.gif)
 
 - The type inference system and compile time check also works well for `JOIN`, `CASE` `ctes`, `window function`, `datetime functions` `recursive ctes`, `RETURNING` and more complex scenarios. You can even run `PRAGMA` statements with it.
 
@@ -166,7 +172,7 @@ Note: Both `sql!` and `sql_runtime!` accept only a single SQL statement at a tim
 
 2. ### `sql_runtime!` Macro
 
-   Use this only when you need the sql to to be executed at runtime. And there are some additional things to take note of when using this macro
+   Use this only when you need the sql to to be executed at runtime with some compile time guarantees. **Rarely needed in practice**. You would know when you need it.
 
    #### a. `SELECT`
 
@@ -245,67 +251,124 @@ Note: Both `sql!` and `sql_runtime!` accept only a single SQL statement at a tim
      let results = db.get_active_users(false)?;
      let first_result = results.first()?.unwrap(); // returns the first row from the returned rows
      ```
+
 5. ### Transactions
-    ```rust
-        use lazysql::{LazyConnection, lazy_sql};
 
-        #[lazy_sql]
-        struct DB {
-            // We add UNIQUE to trigger a real database error later
-            init: sql!(
-                "CREATE TABLE IF NOT EXISTS users
-                        (id INTEGER PRIMARY KEY NOT NULL,
-                        name TEXT UNIQUE NOT NULL)"
-            ),
+   ```rust
+       use lazysql::{LazyConnection, lazy_sql};
 
-            add: sql!("INSERT INTO users (name) VALUES (?)"),
+       #[lazy_sql]
+       struct DB {
+           // We add UNIQUE to trigger a real database error later
+           init: sql!(
+               "CREATE TABLE IF NOT EXISTS users
+                       (id INTEGER PRIMARY KEY NOT NULL,
+                       name TEXT UNIQUE NOT NULL)"
+           ),
 
-            count: sql!("SELECT count(*) as count FROM users"),
-        }
+           add: sql!("INSERT INTO users (name) VALUES (?)"),
 
-        fn main() -> Result<(), Box<dyn std::error::Error>> {
-            let conn = LazyConnection::open_memory()?;
-            let mut db = DB::new(&conn);
-            db.init()?;
+           count: sql!("SELECT count(*) as count FROM users"),
+       }
 
-            // Successful Transaction (Batch Commit)
-            let results = db.transaction(|tx| {
-                tx.add("Alice")?;
-                tx.add("Bob")?;
+       fn main() -> Result<(), Box<dyn std::error::Error>> {
+           let conn = LazyConnection::open_memory()?;
+           let mut db = DB::new(&conn);
+           db.init()?;
 
-                let count = tx.count()?.all()?;
+           // Successful Transaction (Batch Commit)
+           let results = db.transaction(|tx| {
+               tx.add("Alice")?;
+               tx.add("Bob")?;
 
-                Ok(count) // if you are not returning anything, u should return it as `Ok(())`
-            })?;
+               let count = tx.count()?.all()?;
 
-            println!("{:?}", results[0].count); // prints out '2'
+               Ok(count) // if you are not returning anything, u should return it as `Ok(())`
+           })?;
 
-            // Failed Transaction (Automatic Rollback)
-            // We try to add Charlie, then add Alice again.
-            // Since 'Alice' exists, the second command fails, causing the WHOLE block to revert.
-            // If you are running this on ur computer, it is expected to see this in the terminal:
-            // "Error: WriteBinding(Step(SqliteFailure { code: 19, error_msg: "UNIQUE constraint failed: users.name" }))"
-            db.transaction(|tx| {
-                tx.add("Charlie")?; // 1. Writes successfully (pending)
-                tx.add("Alice")?; // 2. Fails (Duplicate) -> Triggers Rollback
-                Ok(())
-            })?;
+           println!("{:?}", results[0].count); // prints out '2'
+
+           // Failed Transaction (Automatic Rollback)
+           // We try to add Charlie, then add Alice again.
+           // Since 'Alice' exists, the second command fails, causing the WHOLE block to revert.
+           // If you are running this on ur computer, it is expected to see this in the terminal:
+           // "Error: WriteBinding(Step(SqliteFailure { code: 19, error_msg: "UNIQUE constraint failed: users.name" }))"
+           db.transaction(|tx| {
+               tx.add("Charlie")?; // 1. Writes successfully (pending)
+               tx.add("Alice")?; // 2. Fails (Duplicate) -> Triggers Rollback
+               Ok(())
+           })?;
 
 
 
-            Ok(())
-        }
-    ```
+           Ok(())
+       }
+   ```
 
 ## Type Mapping
 
-| SQLite Context | Rust Type         | Notes                                                                                                                                                                                                                                        |
-| :------------- | :---------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TEXT`         | `String` / `&str` |  -                                                                                                                                                                                                                                            |
-| `INTEGER`      | `i64`             |  -                                                                                                                                                                                                                                           |
-| `REAL`         | `f64`             | Includes `FLOAT`, `DOUBLE`                                                                                                                                                                                                                   |
+| SQLite Context | Rust Type         | Notes                                                                                                                                                                                                                                       |
+| :------------- | :---------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `TEXT`         | `String` / `&str` | -                                                                                                                                                                                                                                           |
+| `INTEGER`      | `i64`             | -                                                                                                                                                                                                                                           |
+| `REAL`         | `f64`             | Includes `FLOAT`, `DOUBLE`                                                                                                                                                                                                                  |
 | `BOOLEAN`      | `bool`            | Requires `CHECK (col IN (0,1))` or `Check (col = 0 OR col = 1)`. You could technically use `BOOL` or `BOOLEAN` as the data type when creating table (due to sqlite flexible type nature) and it would work as well. But this is discouraged |
-| Nullable       | `Option<T>`       | When a column or expr has a possibility of returning `NULL`, this will be returned. its recommended to use `NOT NULL` when creating tables so that ergonomic-wise you don't always have to use Some(T) when adding parameters                   |
+| Nullable       | `Option<T>`       | When a column or expr has a possibility of returning `NULL`, this will be returned. its recommended to use `NOT NULL` when creating tables so that ergonomic-wise you don't always have to use Some(T) when adding parameters               |
+
+## Dynamic runtime features
+
+### How is this different from  `sql_runtime!`
+
+- `sql_runtime!` is intended more of an escape hatch when you cant use the `sql!` macro due to  false positives. False positives are **extremely extremely rare**. Look below for more info. This is why u still have to define structs for SELECT statements and specify types for binding parameters for non-SELECT statements
+
+- Dynamic runtime features happens fully at runtime. All the features are stated below in this code block.
+
+    ```rust
+
+    use lazysql::LazyConnection;
+
+    fn main() -> Result<(), Box<dyn std::error::Error>> {
+        let conn = LazyConnection::open_memory()?;
+
+        // Use execute_dynamic for write statements (CREATE, INSERT, UPDATE, DELETE, etc.)
+        conn.execute_dynamic(
+            "CREATE TABLE products (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                price REAL,
+                in_stock INTEGER
+            )",
+        )?;
+
+        // _rows_affected variable is the number of rows modified, which in this case is an insert of 3 rows
+        let _rows_affected = conn.execute_dynamic(
+            "INSERT INTO products (name, price, in_stock) VALUES
+            ('Laptop', 999.99, 1),
+            ('Mouse', 25.50, 1),
+            ('Keyboard', 75.00, 0)",
+        )?;
+
+        // Use query_dynamic for running SELECT statements
+        let results = conn.query_dynamic("SELECT * FROM products")?;
+        println!("Headers: {:?}", results.column_names); // id, name, price, in_stock
+
+        // row_result is an iterator
+        for row_result in results {
+            let row = row_result?;
+            for value in row {
+                print!("{:?} ", value);
+            }
+        }
+
+        // u can use helper functions like first() or all() to get a vector of rows.
+        let _first_row = conn
+            .query_dynamic("SELECT name, price FROM products WHERE id = 1")?
+            .first()?; // or .all()? for all rows
+
+        Ok(())
+    }
+
+    ```
 
 ## Notes
 
@@ -315,7 +378,11 @@ Note: Both `sql!` and `sql_runtime!` accept only a single SQL statement at a tim
 
 ### False positives during compile time checks
 
-- I tried my best to support as many sql and sqlite-specific queries as possible. In the extremely rare case of a False positives (valid SQL syntax **fails** or type inference **incorrectly fails**), you can fall back to the `sql_runtime!` macro. Would appreciate it if you could open an issue as well.
+- I tried my best to support as many sql and sqlite-specific queries as possible.
+
+-  This isnt naturally easy in sqlite as they dont provide any api to give us type inference and schema awareness validation.
+
+- In the extremely rare case of a False positives (valid SQL syntax **fails** or type inference **incorrectly fails**), you can fall back to the `sql_runtime!` macro. Would appreciate it if you could open an issue as well.
 
 ### Cannot type cast as Boolean
 
@@ -324,8 +391,8 @@ Note: Both `sql!` and `sql_runtime!` accept only a single SQL statement at a tim
 ## TODOS
 
 1. [upsert](https://www.cockroachlabs.com/blog/sql-upsert/)
-3. check_constarint field in SELECT is ignored for now. maybe in future will make use of this field
-4. cant cast as bool
-5. BLOBS
-6. bulk insert
-7. begin immediate
+2. check_constarint field in SELECT is ignored for now. maybe in future will make use of this field
+3. cant cast as bool
+4. BLOBS
+5. bulk insert
+6. begin immediate
