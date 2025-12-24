@@ -1,6 +1,7 @@
 use libsqlite3_sys::{
-    self as ffi, SQLITE_OK, SQLITE_OPEN_CREATE, SQLITE_OPEN_MEMORY, SQLITE_OPEN_READWRITE, sqlite3,
-    sqlite3_busy_timeout, sqlite3_column_count, sqlite3_column_name, sqlite3_exec,
+    self as ffi, SQLITE_DONE, SQLITE_OK, SQLITE_OPEN_CREATE, SQLITE_OPEN_MEMORY,
+    SQLITE_OPEN_READWRITE, sqlite3, sqlite3_busy_timeout, sqlite3_changes, sqlite3_column_count,
+    sqlite3_column_name, sqlite3_exec, sqlite3_finalize, sqlite3_step,
 };
 use std::{
     ffi::{CStr, CString, c_int},
@@ -100,6 +101,30 @@ impl LazyConnection {
             }
 
             Ok(DynamicRows::new(stmt, column_names))
+        }
+    }
+
+    pub fn execute_dynamic(&self, sql: &str) -> Result<u64, SqliteFailure> {
+        let mut stmt = std::ptr::null_mut();
+
+        unsafe {
+            prepare_stmt(self.db, &mut stmt, sql).map_err(|e| match e {
+                SqlitePrepareErrors::SqliteFailure { code, error_msg } => {
+                    SqliteFailure { code, error_msg }
+                }
+            })?;
+
+            let result = sqlite3_step(stmt);
+            sqlite3_finalize(stmt);
+
+            if result == SQLITE_DONE {
+                // Return how many rows were modified (e.g., "3 rows updated")
+                let changes = sqlite3_changes(self.db);
+                Ok(changes as u64)
+            } else {
+                let (code, error_msg) = get_sqlite_failiure(self.db);
+                Err(SqliteFailure { code, error_msg })
+            }
         }
     }
 }
