@@ -99,7 +99,7 @@ impl LazyConnection {
                 column_names.push(name);
             }
 
-            Ok(DynamicRows { stmt, column_names })
+            Ok(DynamicRows::new(stmt, column_names))
         }
     }
 }

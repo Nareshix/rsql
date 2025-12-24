@@ -1,15 +1,21 @@
 use libsqlite3_sys::{
-    SQLITE_ROW, SQLITE_DONE, SQLITE_INTEGER, SQLITE_FLOAT, SQLITE_TEXT, SQLITE_BLOB, SQLITE_NULL,
-    sqlite3_step, sqlite3_column_count, sqlite3_column_name, sqlite3_column_type,
-    sqlite3_column_int64, sqlite3_column_double, sqlite3_column_text, sqlite3_finalize
+    SQLITE_BLOB, SQLITE_DONE, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL, SQLITE_ROW, SQLITE_TEXT,
+    sqlite3_column_count, sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name,
+    sqlite3_column_text, sqlite3_column_type, sqlite3_finalize, sqlite3_step,
 };
 use std::ffi::CStr;
 
 use crate::traits::dynamic::Value;
 
 pub struct DynamicRows {
-    pub stmt: *mut libsqlite3_sys::sqlite3_stmt,
+    stmt: *mut libsqlite3_sys::sqlite3_stmt,
     pub column_names: Vec<String>,
+}
+
+impl DynamicRows {
+    pub fn new(stmt: *mut libsqlite3_sys::sqlite3_stmt, column_names: Vec<String>) -> Self {
+        Self { stmt, column_names }
+    }
 }
 
 impl Iterator for DynamicRows {
@@ -27,7 +33,9 @@ impl Iterator for DynamicRows {
                         SQLITE_FLOAT => Value::Real(sqlite3_column_double(self.stmt, i)),
                         SQLITE_TEXT => {
                             let ptr = sqlite3_column_text(self.stmt, i);
-                            let s = CStr::from_ptr(ptr as *const i8).to_string_lossy().into_owned();
+                            let s = CStr::from_ptr(ptr as *const i8)
+                                .to_string_lossy()
+                                .into_owned();
                             Value::Text(s)
                         }
                         // TODO SQLITE_BLOB
