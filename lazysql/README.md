@@ -28,7 +28,7 @@
   5. [Transactions](#transactions)
 
 - [Dynamic runtime features](#dynamic-runtime-features)
-  1. [How is this different from  `sql_runtime!`](#how-is-this-different-from-sql_runtime)
+  1. [How is this different from  `sql_runtime!`](#how-is-this-different-from--sql_runtime)
   2. [Runtime Features](#runtime-features)
   3. [Transactions at Runtime](#transactions-at-runtime)
 - [Type Mapping](#type-mapping)
