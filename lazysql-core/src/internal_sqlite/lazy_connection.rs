@@ -82,7 +82,7 @@ impl LazyConnection {
         Ok(())
     }
 
-    pub fn dynamic_query(&self, sql: &str) -> Result<DynamicRows, SqliteFailure> {
+    pub fn query_dynamic(&self, sql: &str) -> Result<DynamicRows, SqliteFailure> {
         let mut stmt = std::ptr::null_mut();
         unsafe {
             prepare_stmt(self.db, &mut stmt, sql).map_err(|e| match e {
