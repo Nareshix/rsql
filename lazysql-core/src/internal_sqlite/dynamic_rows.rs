@@ -1,6 +1,6 @@
 use libsqlite3_sys::{
-    SQLITE_BLOB, SQLITE_DONE, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL, SQLITE_ROW, SQLITE_TEXT,
-    sqlite3_column_count, sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name,
+    SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_ROW, SQLITE_TEXT,
+    sqlite3_column_count, sqlite3_column_double, sqlite3_column_int64,
     sqlite3_column_text, sqlite3_column_type, sqlite3_finalize, sqlite3_step,
 };
 use std::ffi::CStr;
