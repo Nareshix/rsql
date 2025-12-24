@@ -100,7 +100,7 @@ impl LazyConnection {
                 column_names.push(name);
             }
 
-            Ok(DynamicRows::new(stmt, column_names))
+            Ok(DynamicRows::new(stmt, self.db, column_names))
         }
     }
 
