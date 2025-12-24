@@ -190,7 +190,7 @@ Note: Both `sql!` and `sql_runtime!` accept only a single SQL statement at a tim
    use lazysql::{SqlMapping, LazyConnection, lazy_sql};
 
    #[derive(Debug, SqlMapping)]
-   pub struct UserStats {
+   pub struct UserStats { // must be pub
        total: i64,      // Maps to column index 0
        status: String,  // Maps to column index 1
    }
