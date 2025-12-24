@@ -9,13 +9,13 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 license = "MIT"
 
 
 [workspace.dependencies]
-lazysql ={ path = "./lazysql", version = "0.2.0"}
-lazysql-core = { path = "./lazysql-core", version = "0.2.0" }
-lazysql_macros = { path = "./lazysql_macros", version = "0.2.0" }
-type_inference = { path = "./type_inference", version = "0.2.0" }
+lazysql ={ path = "./lazysql", version = "0.2.1"}
+lazysql-core = { path = "./lazysql-core", version = "0.2.1" }
+lazysql_macros = { path = "./lazysql_macros", version = "0.2.1" }
+type_inference = { path = "./type_inference", version = "0.2.1" }
