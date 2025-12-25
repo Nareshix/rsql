@@ -29,7 +29,7 @@ mod tests {
     fn test_shop_flow() -> Result<(), Box<dyn std::error::Error>> {
         // This is the code you had in main()
         let conn = LazyConnection::open_memory().unwrap();
-        let mut dao = ShopDao::new(&conn);
+        let mut dao = ShopDao::new(conn);
 
         dao.create_table()?;
         dao.insert(true)?;
