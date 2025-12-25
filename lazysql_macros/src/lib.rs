@@ -5,8 +5,8 @@ use lazysql_core::utility::utils::{get_db_schema, validate_sql_syntax_with_sqlit
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    Data, DeriveInput, Fields, GenericParam, Ident, ItemStruct, LifetimeParam, LitStr, Type,
-    parse_macro_input, parse_quote, spanned::Spanned,
+    Data, DeriveInput, Fields, Ident, ItemStruct, LitStr, Type, parse_macro_input, parse_quote,
+    spanned::Spanned,
 };
 use type_inference::{
     binding_patterns::get_type_of_binding_parameters, expr::BaseType, pg_cast_syntax_to_sqlite,
@@ -654,20 +654,11 @@ fn expand(
         }
     }
 
-    let lifetime_def: LifetimeParam = parse_quote!('a);
-    item_struct
-        .generics
-        .params
-        .insert(0, GenericParam::Lifetime(lifetime_def));
-
     fields.named.insert(
         0,
-        parse_quote! {
-            __db: &'a lazysql::internal_sqlite::lazy_connection::LazyConnection
-        },
+parse_quote! { __db: std::sync::Arc<lazysql::internal_sqlite::lazy_connection::LazyConnection> }
+,
     );
-
-    let (impl_generics, ty_generics, where_clause) = item_struct.generics.split_for_impl();
 
     let mod_name = quote::format_ident!(
         "__lazy_sql_inner_{}",
@@ -683,17 +674,18 @@ fn expand(
             #(#generated_structs)*
             #item_struct
 
-            impl #impl_generics #struct_name #ty_generics #where_clause {
-                pub fn new(
-                    db: &'a lazysql::internal_sqlite::lazy_connection::LazyConnection,
-                    #(#standard_params),*
-                ) -> Self {
-                    Self {
-                        __db: db,
-                        #(#standard_assignments,)*
-                        #(#sql_assignments,)*
+        impl #struct_name {
+            pub fn new(
+                db: impl Into<std::sync::Arc<lazysql::internal_sqlite::lazy_connection::LazyConnection>>,
+                #(#standard_params),*
+            ) -> Self {
+                Self {
+                    __db: db.into(), // Call .into() to turn it into the Arc
+                    #(#standard_assignments,)*
+                    #(#sql_assignments,)*
                     }
                 }
+
 
     pub fn transaction<T, F>(&mut self, f: F) -> Result<T, lazysql::errors::Error>
     where
