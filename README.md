@@ -83,7 +83,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let conn = LazyConnection::open_memory()?;
 
     // The 'new' constructor is generated automatically
-    let mut db = AppDatabase::new(&conn);
+    let mut db = AppDatabase::new(conn);
 
     // You can now call the methods and it will run the sql commands
     db.init()?;
@@ -210,7 +210,7 @@ Note: Both `sql!` and `sql_runtime!` accept only a single SQL statement at a tim
 
    fn foo{
        let conn = LazyConnection::open_memory()?;
-       let mut db = Analytics::new(&conn);
+       let mut db = Analytics::new(conn);
 
        let foo = db.get_stats(100, 5)?;
        for i in foo{
@@ -280,7 +280,7 @@ Note: Both `sql!` and `sql_runtime!` accept only a single SQL statement at a tim
 
        fn main() -> Result<(), Box<dyn std::error::Error>> {
            let conn = LazyConnection::open_memory()?;
-           let mut db = DB::new(&conn);
+           let mut db = DB::new(conn);
            db.init()?;
 
            // Successful Transaction (Batch Commit)
