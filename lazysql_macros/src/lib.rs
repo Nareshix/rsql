@@ -660,6 +660,8 @@ parse_quote! { __db: std::sync::Arc<lazysql::internal_sqlite::lazy_connection::L
 ,
     );
 
+    let (impl_generics, ty_generics, where_clause) = item_struct.generics.split_for_impl();
+
     let mod_name = quote::format_ident!(
         "__lazy_sql_inner_{}",
         struct_name.to_string().to_lowercase()
@@ -674,8 +676,8 @@ parse_quote! { __db: std::sync::Arc<lazysql::internal_sqlite::lazy_connection::L
             #(#generated_structs)*
             #item_struct
 
-        impl #struct_name {
-            pub fn new(
+            impl #impl_generics #struct_name #ty_generics #where_clause {
+                    pub fn new(
                 db: impl Into<std::sync::Arc<lazysql::internal_sqlite::lazy_connection::LazyConnection>>,
                 #(#standard_params),*
             ) -> Self {
