@@ -5,7 +5,7 @@ use libsqlite3_sys::{
 };
 use std::{
     ffi::{CStr, CString, c_int},
-    ptr,
+    ptr, sync::Arc,
 };
 
 use crate::{
@@ -17,6 +17,9 @@ use crate::{
     internal_sqlite::dynamic_rows::DynamicRows,
     utility::utils::prepare_stmt,
 };
+
+unsafe impl Send for LazyConnection {}
+unsafe impl Sync for LazyConnection {}
 
 pub struct LazyConnection {
     pub db: *mut sqlite3,
@@ -31,17 +34,17 @@ impl Drop for LazyConnection {
 }
 
 impl LazyConnection {
-    pub fn open(filename: &str) -> Result<Self, SqliteOpenErrors> {
+    pub fn open(filename: &str) -> Result<Arc<Self>, SqliteOpenErrors> {
         let flag = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
         LazyConnection::open_with_flags(filename, flag)
     }
 
-    pub fn open_memory() -> Result<Self, SqliteOpenErrors> {
+    pub fn open_memory() -> Result<Arc<Self>, SqliteOpenErrors> {
         let flag = SQLITE_OPEN_MEMORY | SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
         LazyConnection::open_with_flags(":memory:", flag)
     }
 
-    fn open_with_flags(filename: &str, flag: c_int) -> Result<Self, SqliteOpenErrors> {
+    fn open_with_flags(filename: &str, flag: c_int) -> Result<Arc<Self>, SqliteOpenErrors> {
         let mut db = ptr::null_mut();
         let c_filename = CString::new(filename).unwrap(); //TODO
 
@@ -56,7 +59,7 @@ impl LazyConnection {
             // the sql query is taking more than 5 second which means its inefficent lol
 
             unsafe { sqlite3_busy_timeout(db, 5000) };
-            Ok(Self { db })
+            Ok(Arc::new(Self { db }))
         } else {
             let (code, error_msg) = unsafe { get_sqlite_failiure(db) };
             unsafe { close_db(db) };
@@ -64,6 +67,7 @@ impl LazyConnection {
         }
     }
 
+    // note unused internally and undocumented. rarelys used anyways
     pub fn exec(&self, sql: &str) -> Result<(), SqliteFailure> {
         let c_sql = CString::new(sql).unwrap(); //TODO
         let code = unsafe {

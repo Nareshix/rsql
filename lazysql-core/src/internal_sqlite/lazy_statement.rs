@@ -6,6 +6,9 @@ pub struct LazyStmt {
     pub stmt: *mut sqlite3_stmt,
 }
 
+unsafe impl Send for LazyStmt {}
+unsafe impl Sync for LazyStmt {}
+
 impl Drop for LazyStmt {
     fn drop(&mut self) {
         // If the statement was initialized, we must finalize it to prevent memory leaks.
