@@ -7,7 +7,7 @@
 - Some downsides that may or may not be fixed in future
   1. it follows an opinionated API design
   2. Doesn't support BLOBS
-  3. Doesn't support Batch Execution.
+  3. Doesn't support Batch Execution ergonomically. You would need to resort to `sql!()` or `sql_runtime!()` macro
 
 # Overview
 
