@@ -1,5 +1,8 @@
+use std::marker::PhantomData;
+
 use libsqlite3_sys::{
-    SQLITE_BUSY, SQLITE_CONSTRAINT_CHECK, SQLITE_CONSTRAINT_FOREIGNKEY, SQLITE_CONSTRAINT_UNIQUE, SQLITE_DONE, SQLITE_OK, SQLITE_ROW, sqlite3, sqlite3_reset, sqlite3_step, sqlite3_stmt
+    SQLITE_BUSY, SQLITE_CONSTRAINT_CHECK, SQLITE_CONSTRAINT_FOREIGNKEY, SQLITE_CONSTRAINT_UNIQUE,
+    SQLITE_DONE, SQLITE_OK, SQLITE_ROW, sqlite3, sqlite3_reset, sqlite3_step, sqlite3_stmt,
 };
 
 use crate::{
@@ -40,7 +43,7 @@ impl PreparredStmt {
     pub fn step(&mut self) -> Result<(), StatementStepErrors> {
         let code = unsafe { sqlite3_step(self.stmt) };
 
-        if code == SQLITE_DONE  || code == SQLITE_ROW {
+        if code == SQLITE_DONE || code == SQLITE_ROW {
             return Ok(());
         }
 
@@ -61,7 +64,11 @@ impl PreparredStmt {
         }
     }
 
-    pub fn query<M: RowMapper>(self, mapper: M) -> Rows<M> {
-        Rows { stmt: self, mapper }
+    pub fn query<'a, M: RowMapper>(self, mapper: M) -> Rows<'a, M> {
+        Rows {
+            stmt: self,
+            mapper,
+            _marker: PhantomData,
+        }
     }
 }

@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use libsqlite3_sys::{SQLITE_BUSY, SQLITE_DONE, SQLITE_ROW, sqlite3_step};
 
 use crate::{
@@ -6,12 +8,13 @@ use crate::{
 };
 
 #[allow(dead_code)]
-pub struct Rows<M: RowMapper> {
+pub struct Rows<'a, M: RowMapper> {
     pub stmt: PreparredStmt,
     pub mapper: M,
+    pub _marker: PhantomData<&'a mut ()>,
 }
 
-impl<M: RowMapper> Iterator for Rows<M> {
+impl<'a, M: RowMapper> Iterator for Rows<'a, M> {
     // The Output refers to the original struct predefined by user (TODO, better explanation)
     type Item = Result<M::Output, RowMapperError>;
 
@@ -33,7 +36,7 @@ impl<M: RowMapper> Iterator for Rows<M> {
     }
 }
 
-impl<M: RowMapper> Rows<M> {
+impl<'a, M: RowMapper> Rows<'a, M> {
     /// Returns the first row if available, or `None` if the query returned no results.
     ///
     /// # Example

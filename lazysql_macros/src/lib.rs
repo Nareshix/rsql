@@ -422,7 +422,7 @@ fn expand(
                 generated_methods.push(quote! {
                     #(#field_attrs)*
                 #[doc = #doc_comment]
-                pub fn #ident(&mut self) -> Result<lazysql::internal_sqlite::rows_dao::Rows<#mapper_struct_name>, lazysql::errors::SqlReadError> {
+                pub fn #ident(&mut self) -> Result<lazysql::internal_sqlite::rows_dao::Rows<'_, #mapper_struct_name>, lazysql::errors::SqlReadError> {
                         if self.#ident.stmt.is_null() {
                             unsafe {
                                 lazysql::utility::utils::prepare_stmt(
@@ -518,7 +518,7 @@ fn expand(
                 generated_methods.push(quote! {
                     #(#field_attrs)*
                     #[doc = #doc_comment]
-                    pub fn #ident(&mut self, #(#method_args),*) -> Result<lazysql::internal_sqlite::rows_dao::Rows<#mapper_struct_name>, lazysql::errors::SqlReadErrorBindings> {
+                    pub fn #ident(&mut self, #(#method_args),*) -> Result<lazysql::internal_sqlite::rows_dao::Rows<'_, #mapper_struct_name>, lazysql::errors::SqlReadErrorBindings> {
                         if self.#ident.stmt.is_null() {
                             unsafe {
                                 lazysql::utility::utils::prepare_stmt(
