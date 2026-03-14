@@ -100,10 +100,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // u can access the fields specifically if you want
         // Respects Aliases (is_active -> active)
         let user = user?;
-        println!("{} {}, {}", user.active, user.username, user.id); // note user.id is float as we type casted it in the sql stmt
+        println!("{}, {}, {}", user.active, user.username, user.id); // note user.id is float as we type casted it in the sql stmt
     }
 
     Ok(())
+    // prints out "true, Alice, 0"
 }
 ```
 
