@@ -330,6 +330,7 @@ fn expand(
                         BaseType::Real => quote! { f64 },
                         BaseType::Bool => quote! { bool },
                         BaseType::Text => quote! { &str },
+                        BaseType::Blob => quote! { &[u8] },
                         _ => quote! {},
                     };
 
@@ -399,6 +400,7 @@ fn expand(
                         BaseType::Integer => quote! { i64 },
                         BaseType::Real => quote! { f64 },
                         BaseType::Text => quote! { String },
+                        BaseType::Blob => quote! { Vec<u8> },
                         BaseType::Bool => quote! { bool },
                         _ => quote! {},
                     };
@@ -467,6 +469,7 @@ fn expand(
                         BaseType::Integer => quote! { i64 },
                         BaseType::Real => quote! { f64 },
                         BaseType::Text => quote! { String },
+                        BaseType::Blob => quote! { Vec<u8> },
                         BaseType::Bool => quote! { bool },
                         _ => quote! {},
                     };
@@ -499,6 +502,7 @@ fn expand(
                         BaseType::Real => quote! { f64 },
                         BaseType::Bool => quote! { bool },
                         BaseType::Text => quote! { &str },
+                        BaseType::Blob => quote! { &[u8] },
                         _ => quote! {},
                     };
 

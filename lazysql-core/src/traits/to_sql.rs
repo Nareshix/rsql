@@ -70,3 +70,17 @@ impl<T: ToSql> ToSql for Option<T> {
         }
     }
 }
+
+impl ToSql for &[u8] {
+    unsafe fn bind_to(self, stmt: *mut sqlite3_stmt, index: i32) -> i32 {
+        unsafe {
+            ffi::sqlite3_bind_blob(
+                stmt,
+                index,
+                self.as_ptr() as *const _,
+                self.len() as i32,
+                ffi::SQLITE_TRANSIENT(),
+            )
+        }
+    }
+}

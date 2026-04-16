@@ -105,6 +105,12 @@ fn convert_sqlite_to_rust_type(sql: String, nullable: bool, is_bool_context: boo
             nullable,
             contains_placeholder: false,
         }
+    } else if sql_upper.contains("BLOB") {
+        Type {
+            base_type: BaseType::Blob,
+            nullable,
+            contains_placeholder: false,
+        }
     } else {
         Type {
             base_type: BaseType::Null,

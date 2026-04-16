@@ -15,6 +15,7 @@ pub enum BaseType {
     Bool,
     Text,
     Null,
+    Blob,
     Unknowns,
     PlaceHolder,
 }
@@ -485,9 +486,8 @@ pub fn evaluate_expr_type(
                 | DataType::Clob(_) =>BaseType::Text,
 
 
-                // TODO
-                // DataType::Blob(_) =>
-
+                DataType::Blob(_) | DataType::Bytea => BaseType::Blob,
+                
                 DataType::Real
                 | DataType::Double(_)
                 | DataType::DoublePrecision

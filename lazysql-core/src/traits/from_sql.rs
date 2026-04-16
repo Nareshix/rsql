@@ -59,3 +59,18 @@ impl<T: FromSql> FromSql for Option<T> {
         }
     }
 }
+
+impl FromSql for Vec<u8> {
+    unsafe fn from_sql(stmt: *mut sqlite3_stmt, index: i32) -> Self {
+        let ptr = unsafe { libsqlite3_sys::sqlite3_column_blob(stmt, index) };
+        let bytes = unsafe { libsqlite3_sys::sqlite3_column_bytes(stmt, index) };
+
+        // The return value from sqlite3_column_blob() for a zero-length BLOB is a NULL pointer.
+        // (https://sqlite.org/c3ref/column_blob.html)
+        if ptr.is_null() {
+            return Vec::new();
+        }
+
+        unsafe { std::slice::from_raw_parts(ptr as *const u8, bytes as usize).to_vec() }
+    }
+}

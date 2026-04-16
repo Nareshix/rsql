@@ -232,6 +232,7 @@ pub fn validate_sql_syntax_with_sqlite(
                         BaseType::Real => "REAL",
                         BaseType::Bool => "BOOLEAN",
                         BaseType::Text => "TEXT",
+                        BaseType::Blob => "BLOB",
                         BaseType::Null | BaseType::Unknowns | BaseType::PlaceHolder => "TEXT",
                     };
 
