@@ -464,3 +464,50 @@ hence give eoption to change the timeout
 make the readme shorter
 
 in case CREATE TABLE is done after a random query in sql_struct should i allow it? like scan whole struct first instead of top down? at least show a warning
+
+e.g. blob support to add later
+
+```rust
+use std::fs;
+use lazysql::{LazyConnection, lazy_sql};
+
+#[lazy_sql]
+struct AppDatabase {
+    init: sql!("
+        CREATE TABLE IF NOT EXISTS documents (
+            id INTEGER PRIMARY KEY NOT NULL,
+            name TEXT NOT NULL,
+            payload BLOB NOT NULL
+        )
+    "),
+    insert_doc: sql!("INSERT INTO documents (id, name, payload) VALUES (?, ?, ?)"),
+    get_doc: sql!("SELECT id, name, payload FROM documents WHERE id = ?"),
+
+
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let conn = LazyConnection::open("asd.db")?;
+    let mut db = AppDatabase::new(conn);
+    db.init()?;
+
+    // 1. Read the image file from disk into a Vec<u8>
+    let image_bytes = fs::read("error_1.png")?;
+    println!("Read image from disk: {} bytes", image_bytes.len());
+
+    // 2. Insert into the database (pass a reference to the Vec so it becomes &[u8])
+    db.insert_doc(2, "error_1.png", &image_bytes)?;
+    println!("Image successfully saved to SQLite!");
+
+    // 3. Retrieve the image back from the database
+    let results = db.get_doc(2)?;
+    let doc = results.first()?.unwrap();
+    println!("Retrieved document '{}' with {} bytes.", doc.name, doc.payload.len());
+
+    // 4. Write it back to the disk with a new name to verify!
+    fs::write("restored_error_1.png", &doc.payload)?;
+    println!("Image restored to disk as 'restored_error_1.png'. Open it to see!");
+
+    Ok(())
+}
+```
