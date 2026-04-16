@@ -6,8 +6,7 @@
 - Fast. Automatically caches and reuses prepared statements for you
 - Some downsides that may or may not be fixed in future
   1. it follows an opinionated API design
-  2. Doesn't support BLOBS
-  3. Doesn't support Batch Execution ergonomically. You would need to resort to `sql!()` or `sql_runtime!()` macro
+  2. Doesn't support Batch Execution ergonomically. You would need to resort to `sql!()` or `sql_runtime!()` macro
 
 # Overview
 
@@ -453,6 +452,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 1. [upsert](https://www.cockroachlabs.com/blog/sql-upsert/)
 2. check_constarint field in SELECT is ignored for now. maybe in future will make use of this field
 3. cant cast as bool
-4. BLOBS
-5. bulk insert
-6. begin immediate
+
+4. bulk insert
+5. begin immediate
+
+show how blob is used in READEME
+//TODO sqlite3_busy_timeout does return an int. It is nearly a gurantee for this
+// function to never fail. but its still good to handle it. If it fails mean
+// the sql query is taking more than 5 second which means its inefficent lol
+hence give eoption to change the timeout
+make the readme shorter
+
+in case CREATE TABLE is done after a random query in sql_struct should i allow it? like scan whole struct first instead of top down? at least show a warning
